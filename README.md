@@ -14,6 +14,11 @@ Finds beaten-down call options that pay the most if a stock rebounds, and shows 
 and writes small JSON files to `site/data/`. A GitHub Action runs it every 15 minutes during market hours and
 publishes `site/` to GitHub Pages. All pricing math (Black-Scholes, Greeks, scenarios) runs in the browser.
 
+## Keeping prices fresh
+GitHub's built-in schedule is best effort (runs can be late or skipped), so a small Google Apps Script
+(`tools/apps-script-trigger.gs`) starts the update every 5 minutes during market hours. Setup steps are at the top
+of that file. The site also checks for new data every 2 minutes while it's open.
+
 ## Watchlist
 One file per ticker in `watchlist/` (the file name is the ticker). Add one from the site's Explorer ("Track …"),
 or create a file here on GitHub. Tickers that don't exist or have no options are skipped and shown with a reason.

@@ -1,5 +1,6 @@
 # Scan the watchlist and publish the site to GitHub Pages.
-# Runs every 15 minutes while the US market is open (times are UTC; covers both EST and EDT),
+# Started every 5 minutes in market hours by tools/apps-script-trigger.gs (GitHub's own schedule below is a backup:
+# it is best effort and can run late). Times are UTC and cover both EST and EDT;
 # once after the close, whenever the watchlist or the code changes, and on demand (Actions → Run workflow).
 # Security: actions are pinned to exact commits (tags can be moved by an attacker), packages to exact versions,
 # and the token can only read the repo and publish Pages. Dependabot proposes updates to the pins.
@@ -21,7 +22,7 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: false      # a run in progress finishes; at most one more waits behind it
 
 jobs:
   update:

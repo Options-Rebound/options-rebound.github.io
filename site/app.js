@@ -569,6 +569,31 @@ function seg(id, key, cb) {
   }));
 }
 
+function showFreshness() {
+  const mins = Math.max(0, Math.round((Date.now() - new Date(state.index.updated)) / 60000));
+  $("#updated").textContent = `Prices from ${mins < 1 ? "just now" : mins < 60 ? mins + " min ago" : Math.round(mins / 60) + " h ago"}`;
+  $("#dot").classList.toggle("stale", mins > 45);
+}
+
+async function checkForNewData() {
+  if (document.hidden) return;                          // no work while the tab is in the background
+  try {
+    const idx = await getJSON("data/index.json");
+    if (idx.updated === state.index.updated) return;
+    const [market, pf] = await Promise.all([getJSON("data/market.json"), getJSON("data/portfolio.json").catch(() => state.pf)]);
+    state.index = idx; state.market = market; state.pf = pf; state.chains = {};
+    state.own = Object.fromEntries((state.pf?.assets || []).filter((a) => a.current > 0).map((a) => [a.t, a.current]));
+    if (ex.t) ex.data = await chain(ex.t);              // keep the Explorer's current pick, with new prices
+    renderPulse(); showFreshness();
+    await renderBoard();
+    const tab = location.hash.split("/")[1] || "board";
+    if (tab === "explore" && ex.data && $("#exK")) renderExplorer();
+    if (tab === "market") renderMarket();
+    if (tab === "portfolio") renderPortfolio();
+  } catch (e) { /* offline or mid-deploy: try again next time */ }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && state.index) { showFreshness(); checkForNewData(); } });
+
 async function init() {
   try {
     [state.index, state.market] = await Promise.all([getJSON("data/index.json"), getJSON("data/market.json")]);
@@ -577,9 +602,9 @@ async function init() {
   } catch (e) {
     $("#board").innerHTML = `<div class="card empty">Couldn't load market data yet. The first scan may still be running; try again in a few minutes.</div>`; return;
   }
-  const mins = Math.round((Date.now() - new Date(state.index.updated)) / 60000);
-  $("#updated").textContent = `Prices from ${mins < 60 ? mins + " min" : Math.round(mins / 60) + " h"} ago`;
-  $("#dot").classList.toggle("stale", mins > 45);
+  showFreshness();
+  setInterval(showFreshness, 60 * 1000);                // keep "Prices from … ago" honest while the page stays open
+  setInterval(checkForNewData, 2 * 60 * 1000);          // and pick up each new update without a reload
   applyTheme();
   setInterval(applyTheme, 5 * 60 * 1000);
   $("#tickerSelect").innerHTML = `<option value="">Choose a stock…</option>` +
