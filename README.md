@@ -25,3 +25,9 @@ python -m http.server --directory site 8000   # open http://localhost:8000
 ```
 
 Prices are about 15 minutes delayed (Yahoo Finance). Model estimates, not investment advice.
+
+## Share
+
+![QR code to options-rebound.github.io](brand/qr-options-rebound.png)
+
+QR codes (print, gold-on-black, SVG) and the logo are in [`brand/`](brand/).
