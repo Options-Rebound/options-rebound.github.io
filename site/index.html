@@ -66,6 +66,14 @@
           <option value="200">$200</option><option value="300">$300</option><option value="500">$500</option><option value="600">$600</option>
           <option value="1000" selected>$1,000</option><option value="1500">$1,500</option><option value="2500">$2,500</option><option value="5000">$5,000</option>
         </select></div>
+      <div class="ctl"><label>Rank by</label>
+        <select id="rank" aria-label="Rank by">
+          <option value="half" selected>Halfway payoff</option>
+          <option value="balanced">Balanced (upside vs downside)</option>
+          <option value="full">Full-rebound payoff</option>
+          <option value="safe">Smallest loss if flat</option>
+          <option value="beaten">Most beaten-down stock</option>
+        </select></div>
     </div>
 
     <div class="tiles t3" id="picks"></div>
@@ -78,7 +86,7 @@
 
     <div class="card">
       <div class="card__head"><h2>Best call per stock</h2>
-        <span class="muted small">Ranked by what it pays if the stock gets only <b>halfway</b> there, so long shots don't win. Tick up to 2 to plan a play.</span></div>
+        <span class="muted small"><span id="rankNote"></span> Tick up to 2 to plan a play.</span></div>
       <div class="tablewrap"><table class="board" id="boardTable"></table></div>
     </div>
     <p class="note">Model estimates (Black-Scholes with each option's own implied volatility, easing up to 10% on a rally and rising up to 20% on a selloff). Prices are about 15–30 minutes delayed. Not investment advice.</p>

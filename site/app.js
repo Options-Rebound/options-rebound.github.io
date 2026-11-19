@@ -41,16 +41,31 @@ const ivAfter = (iv, move) => iv * (1 + (move > 0 ? IV_RALLY : IV_SELLOFF) * Mat
 const pay = (c) => (c[2] > 0 ? c[2] : c[3]);            // what you pay: the ask (or last trade if no ask)
 
 // ---------------------------------------------------------------- data
-const state = { index: null, market: null, chains: {}, picks: [], target: 0.3, horizon: 60, budget: 1000 };
+const state = { index: null, market: null, chains: {}, picks: [], target: 0.3, horizon: 60, budget: 1000, rank: "half" };
+
+// How the board ranks: each choice picks every stock's best call AND orders the stocks (bigger key wins).
+const RANKS = {
+  half: { key: (r) => [r.half, r.full], note: "Ranked by what the call pays if the stock gets only <b>halfway</b> there, so long shots don't win." },
+  balanced: { key: (r) => (r.full >= 2 ? [(r.half - 1) / Math.max(0.1, -r.flat), r.half] : [-Infinity]),
+              note: "Ranked by <b>upside per unit of downside</b>: the gain if halfway divided by the loss if the stock goes nowhere, among calls that at least double on the full rebound." },
+  full: { key: (r) => [r.full, r.half], note: "Ranked by the payoff if the stock makes the <b>full</b> rebound. Favors bolder, cheaper calls." },
+  safe: { key: (r) => (r.half >= 1 ? [r.flat, r.half] : [-Infinity]), note: "Ranked by the <b>smallest loss if the stock goes nowhere</b>, among calls that at least break even halfway." },
+  beaten: { key: (r) => [r.half, r.full], stock: (row) => [-row.s.below_ath], note: "Stocks ranked by <b>how far they are below their all-time high</b>; each one's call is its best halfway payoff." },
+};
+const better = (a, b) => { for (let i = 0; i < a.length; i++) { if (a[i] !== b[i]) return a[i] > b[i]; } return false; };
 async function getJSON(u) { const r = await fetch(u, { cache: "no-cache" }); if (!r.ok) throw new Error(u + " " + r.status); return r.json(); }
 async function chain(t) { return (state.chains[t] ||= getJSON(`data/chains/${t}.json`)); }
 
 // ---------------------------------------------------------------- rebound board
 function targetPrice(s, target) { return target === "ath" ? s.ath : s.price * (1 + target); }
 
-function bestCall(s, ch, { target, horizon, budget }) {
+function bestCall(s, ch, { target, horizon, budget, rank = "half" }) {
   const S = s.price, St = targetPrice(s, target), Sh = S + (St - S) / 2, move = St / S - 1;
-  let best = null;
+  // chance the stock is at least halfway there by the end of the window (lognormal, its own implied volatility)
+  const sig = (s.atm_iv || s.hv || 0.4) * Math.sqrt(horizon / 365);
+  const pHalf = 1 - ncdf((Math.log(Sh / S) + sig * sig / 2) / sig);
+  const keyOf = RANKS[rank].key;
+  let best = null, bestKey = null;
   for (const [exp, sides] of Object.entries(ch.chains)) {
     const dte = daysTo(exp);
     if (dte < horizon + 14) continue;                              // still has time left after the rebound
@@ -65,20 +80,25 @@ function bestCall(s, ch, { target, horizon, budget }) {
       const flat = bs("call", S, K, Th, iv) / cost - 1;
       const dip = bs("call", S * 0.9, K, Th, ivAfter(iv, -0.1)) / cost - 1;
       const atAth = bs("call", s.ath, K, T, iv);
-      const row = { s, exp, dte, K, cost, iv, oi, full, half, flat, dip, beaten: atAth > 0 ? 1 - cost / atAth : 0 };
-      if (!best || row.half > best.half || (row.half === best.half && row.full > best.full)) best = row;
+      const row = { s, exp, dte, K, cost, iv, oi, full, half, flat, dip, beaten: atAth > 0 ? 1 - cost / atAth : 0,
+                    pHalf, ev: pHalf * half + (1 - pHalf) * (1 + flat) };
+      const k = keyOf(row);
+      if (k[0] !== -Infinity && (!best || better(k, bestKey))) { best = row; bestKey = k; }
     }
   }
   return best;
 }
 
 async function renderBoard() {
-  const opts = { target: state.target, horizon: state.horizon, budget: state.budget };
+  const opts = { target: state.target, horizon: state.horizon, budget: state.budget, rank: state.rank };
+  const R = RANKS[state.rank];
+  $("#rankNote").innerHTML = R.note;
+  const stockKey = (row) => (row.best ? (R.stock ? R.stock(row) : R.key(row.best)) : [-Infinity]);
   const stocks = state.index.stocks;
   const chains = await Promise.all(stocks.map((s) => chain(s.ticker).catch(() => null)));
   const NEAR = -0.10;                                   // within 10% of the all-time high: nothing to rebound from
   const rows = stocks.map((s, i) => ({ s, ch: chains[i], near: s.below_ath > NEAR, best: chains[i] ? bestCall(s, chains[i], opts) : null }))
-    .sort((a, b) => (a.near - b.near) || ((b.best?.half ?? -1) - (a.best?.half ?? -1)));
+    .sort((a, b) => (a.near - b.near) || (better(stockKey(a), stockKey(b)) ? -1 : better(stockKey(b), stockKey(a)) ? 1 : 0));
   state.rows = rows;
   const tname = state.target === "ath" ? "back to ATH" : pct(state.target);
   $("#boardTable").innerHTML = `<thead><tr><th></th><th class="l">Stock</th><th class="l">1 year</th><th>Below ATH</th><th>Beta</th><th class="l">Best call</th><th>Cost</th>
@@ -93,14 +113,14 @@ async function renderBoard() {
       const sp = `<td class="sp">${spark(ch?.chart?.slice(-130), s.ath)}</td>`;
       const move = targetPrice(s, state.target) / s.price - 1;
       if (!b) return `<tr><td></td><td class="l"><span class="tk">${s.ticker}</span><span class="sub">${esc(s.name)}</span></td>${sp}<td class="down">${pct(s.below_ath)}</td>
-        <td>${s.beta ?? "—"}</td><td class="l muted" colspan="8">No call fits (try a bigger budget or shorter window)</td></tr>`;
+        <td>${s.beta ?? "—"}</td><td class="l muted" colspan="8">No call fits these settings (try a bigger budget, a shorter window or another ranking)</td></tr>`;
       const on = state.picks.some((p) => p.s.ticker === s.ticker);
       return `<tr class="click" data-t="${s.ticker}"><td><input type="checkbox" data-pick="${s.ticker}" ${on ? "checked" : ""} aria-label="Plan a play with ${s.ticker}"></td>
         <td class="l"><span class="tk">${s.ticker}</span>${state.own?.[s.ticker] ? `<span class="own" title="Already in your portfolio: a call adds to this exposure">own ${pctPlain(state.own[s.ticker])}</span>` : ""}<span class="sub">${esc(s.name)}</span></td>${sp}
         <td class="down">${pct(s.below_ath)}</td><td>${s.beta ?? "—"}</td>
         <td class="l">$${b.K} call<span class="sub">${b.exp} · ${Math.round(b.dte)} days</span></td>
         <td>${fmt$(b.cost * 100)}</td><td>${pct(-b.beaten)}</td>
-        <td><span class="pill ${cls(b.half - 1)}">${mult(b.half)}</span></td><td><span class="pill ${cls(b.full - 1)}">${mult(b.full)}</span></td>
+        <td><span class="pill ${cls(b.half - 1)}">${mult(b.half)}</span><span class="sub" title="Chance the stock is at least halfway there by the end of the window">${Math.round(b.pHalf * 100)}% chance</span></td><td><span class="pill ${cls(b.full - 1)}">${mult(b.full)}</span></td>
         <td class="${cls(b.flat)}">${pct(b.flat)}</td><td class="${cls(b.dip)}">${pct(b.dip)}</td>
         <td class="muted">${pct(move)}</td></tr>`;
   }
@@ -612,6 +632,9 @@ async function init() {
   renderPulse();
   seg("target", "target", renderBoard); seg("horizon", "horizon", renderBoard);
   $("#budget").onchange = (e) => { state.budget = +e.target.value; renderBoard(); };
+  const qRank = new URLSearchParams(location.search).get("rank");
+  if (qRank && RANKS[qRank]) { state.rank = qRank; $("#rank").value = qRank; }        // ?rank=balanced to share a ranking
+  $("#rank").onchange = (e) => { state.rank = e.target.value; renderBoard(); };
   $("#paletteTab").onclick = () => $("#palette").classList.toggle("open");
   document.addEventListener("change", (e) => { if (e.target.id === "planBudget") { state.planBudget = +e.target.value; renderPlay(); } });
   $("#tickerSelect").onchange = (e) => { if (e.target.value) location.hash = `#/explore/${e.target.value}`; };
