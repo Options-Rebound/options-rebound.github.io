@@ -5,58 +5,77 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Options Rebound</title>
 <meta name="description" content="Find beaten-down call options that pay the most if a stock rebounds, and see what you lose if it doesn't.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23116a5c'/%3E%3Cpath d='M6 22l6-7 5 4 9-10' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23e2b858'/%3E%3Cstop offset='1' stop-color='%238a929c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Cpath d='M7 21l6-7 5 4 8-9' stroke='%23111' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
+<script>
+  // theme before first paint: saved choice, else by time of day (morning silver, afternoon graphite, evening onyx)
+  (function () {
+    var t = null; try { t = localStorage.getItem("theme"); } catch (e) {}
+    var q = (location.search.match(/[?&]theme=(silver|graphite|onyx)/) || [])[1];   // ?theme=onyx to preview a theme
+    if (q) { t = q; try { localStorage.setItem("theme", q); } catch (e) {} }
+    var h = new Date().getHours();
+    var auto = h >= 6 && h < 12 ? "silver" : h >= 12 && h < 18 ? "graphite" : "onyx";
+    document.documentElement.dataset.theme = t && t !== "auto" ? t : auto;
+  })();
+</script>
 <link rel="stylesheet" href="style.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body>
+<div class="bg" aria-hidden="true"></div>
+
 <header class="top">
   <div class="wrap top__in">
-    <a class="brand" href="#/board"><span class="logo"></span>Options Rebound</a>
+    <a class="brand" href="#/board"><span class="mark"><svg viewBox="0 0 16 16"><path d="M2 11l3.5-4 3 2.5L14 3" stroke="#111" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Options Rebound</a>
     <nav class="tabs">
-      <a href="#/board" data-tab="board">Rebound board</a>
+      <a href="#/board" data-tab="board">Board</a>
       <a href="#/explore" data-tab="explore">Explorer</a>
       <a href="#/market" data-tab="market">Market</a>
     </nav>
-    <span class="updated" id="updated"></span>
+    <span class="updated"><span class="dot" id="dot"></span><span id="updated"></span></span>
   </div>
 </header>
+
+<aside class="palette" id="palette" aria-label="Color theme">
+  <button class="palette__tab" aria-label="Show color themes" onclick="this.parentElement.classList.toggle('open')"></button>
+  <div class="palette__panel">
+    <b>Theme</b>
+    <button class="sw" data-theme="auto"><i style="background:conic-gradient(#e9ebee 0 33%,#2f3237 0 66%,#0b0b0c 0)"></i><span>Auto<small>by time of day</small></span></button>
+    <button class="sw" data-theme="silver"><i style="background:linear-gradient(135deg,#f6f7f8,#a9b0b8 70%,#c9a24b)"></i><span>Silver<small>morning</small></span></button>
+    <button class="sw" data-theme="graphite"><i style="background:linear-gradient(135deg,#3a3d42,#26282c 60%,#d6b25e)"></i><span>Graphite<small>afternoon</small></span></button>
+    <button class="sw" data-theme="onyx"><i style="background:linear-gradient(135deg,#1a1b1d,#08090a 60%,#e2b858)"></i><span>Onyx<small>evening</small></span></button>
+  </div>
+</aside>
 
 <main class="wrap">
   <!-- ======================= BOARD ======================= -->
   <section id="board" class="view">
-    <div class="pulse" id="pulse"></div>
+    <div class="tiles t3" id="pulse"></div>
 
     <div class="card controls">
-      <div class="ctl">
-        <label>If the stock rebounds</label>
-        <div class="seg" id="target">
-          <button data-v="0.2">+20%</button><button data-v="0.3" class="on">+30%</button><button data-v="0.5">+50%</button><button data-v="ath">Back to ATH</button>
-        </div>
-      </div>
-      <div class="ctl">
-        <label>within</label>
-        <div class="seg" id="horizon">
-          <button data-v="30">1 mo</button><button data-v="60" class="on">2 mo</button><button data-v="90">3 mo</button><button data-v="180">6 mo</button>
-        </div>
-      </div>
-      <div class="ctl">
-        <label>Max per contract</label>
-        <div class="seg" id="budget">
-          <button data-v="300">$300</button><button data-v="600">$600</button><button data-v="1000" class="on">$1,000</button><button data-v="2500">$2,500</button>
-        </div>
-      </div>
+      <div class="ctl"><label>If the stock rebounds</label>
+        <div class="seg" id="target"><button data-v="0.2">+20%</button><button data-v="0.3" class="on">+30%</button><button data-v="0.5">+50%</button><button data-v="ath">Back to ATH</button></div></div>
+      <div class="ctl"><label>within</label>
+        <div class="seg" id="horizon"><button data-v="30">1 mo</button><button data-v="60" class="on">2 mo</button><button data-v="90">3 mo</button><button data-v="180">6 mo</button></div></div>
+      <div class="ctl"><label>Max per contract</label>
+        <div class="seg" id="budget"><button data-v="300">$300</button><button data-v="600">$600</button><button data-v="1000" class="on">$1,000</button><button data-v="2500">$2,500</button></div></div>
+    </div>
+
+    <div class="tiles t3" id="picks"></div>
+
+    <div class="grid2">
+      <div class="card"><div class="card__head"><h2>Where the opportunity is</h2><span class="muted small">Further right = more beaten down · higher = pays more halfway · bigger = higher beta</span></div>
+        <div class="chart tall"><canvas id="oppChart"></canvas></div></div>
+      <div class="card play" id="play"></div>
     </div>
 
     <div class="card">
-      <div class="card__head">
-        <h2>Best call per stock</h2>
-        <span class="muted small">Ranked by what it pays if the stock gets only <b>halfway</b> there, so long shots don't win. Tick up to 2 to plan a play.</span>
-      </div>
+      <div class="card__head"><h2>Best call per stock</h2>
+        <span class="muted small">Ranked by what it pays if the stock gets only <b>halfway</b> there, so long shots don't win. Tick up to 2 to plan a play.</span></div>
       <div class="tablewrap"><table class="board" id="boardTable"></table></div>
     </div>
-
-    <div class="card play" id="play"></div>
     <p class="note">Model estimates (Black-Scholes with each option's own implied volatility, easing up to 10% on a rally and rising up to 20% on a selloff). Prices are about 15–30 minutes delayed. Not investment advice.</p>
   </section>
 
@@ -72,8 +91,12 @@
 
   <!-- ======================= MARKET ======================= -->
   <section id="market" class="view" hidden>
-    <div class="grid3" id="marketStats"></div>
-    <div class="card"><div class="card__head"><h2>VIX (fear index), last 12 months</h2></div><div class="chart"><canvas id="vixChart"></canvas></div></div>
+    <div class="tiles t3" id="marketStats"></div>
+    <div class="grid2">
+      <div class="card"><div class="card__head"><h2>VIX (fear index), 12 months</h2><span class="muted small">Above 20: elevated fear · above 30: panic</span></div><div class="chart"><canvas id="vixChart"></canvas></div></div>
+      <div class="card"><div class="card__head"><h2>How far each stock is from its all-time high</h2></div><div class="chart"><canvas id="ddChart"></canvas></div></div>
+    </div>
+    <div class="card" id="pcHistCard" hidden><div class="card__head"><h2>Market put/call ratio and VIX, day by day</h2><span class="muted small">Builds up as the site keeps running</span></div><div class="chart short"><canvas id="pcHist"></canvas></div></div>
     <div class="card"><div class="card__head"><h2>Put/call ratio by stock</h2><span class="muted small">Above 1: more puts than calls traded (fear or hedging). Below 0.7: calls dominate (optimism).</span></div>
       <div class="tablewrap"><table id="pcTable"></table></div></div>
   </section>

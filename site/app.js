@@ -77,25 +77,26 @@ async function renderBoard() {
   const stocks = state.index.stocks;
   const chains = await Promise.all(stocks.map((s) => chain(s.ticker).catch(() => null)));
   const NEAR = -0.10;                                   // within 10% of the all-time high: nothing to rebound from
-  const rows = stocks.map((s, i) => ({ s, near: s.below_ath > NEAR, best: chains[i] ? bestCall(s, chains[i], opts) : null }))
+  const rows = stocks.map((s, i) => ({ s, ch: chains[i], near: s.below_ath > NEAR, best: chains[i] ? bestCall(s, chains[i], opts) : null }))
     .sort((a, b) => (a.near - b.near) || ((b.best?.half ?? -1) - (a.best?.half ?? -1)));
   state.rows = rows;
   const tname = state.target === "ath" ? "back to ATH" : pct(state.target);
-  $("#boardTable").innerHTML = `<thead><tr><th></th><th class="l">Stock</th><th>Below ATH</th><th>Beta</th><th class="l">Best call</th><th>Cost</th>
+  $("#boardTable").innerHTML = `<thead><tr><th></th><th class="l">Stock</th><th class="l">1 year</th><th>Below ATH</th><th>Beta</th><th class="l">Best call</th><th>Cost</th>
       <th title="Discount vs what this call would cost if the stock were at its all-time high today">Beaten down</th>
       <th>If halfway</th><th>If ${esc(tname)}</th><th>If flat</th><th>If -10%</th><th>Stock alone</th></tr></thead><tbody>` +
-    rows.map(({ s, best: b, near }, i) => {
+    rows.map(({ s, best: b, near, ch }, i) => {
       const divider = near && (i === 0 || !rows[i - 1].near)
-        ? `<tr><td colspan="12" class="l muted small" style="padding-top:18px">Near their all-time highs (within 10%): a big move here would be a breakout, not a rebound</td></tr>` : "";
-      return divider + rowHtml(s, b);
+        ? `<tr class="divider"><td colspan="13">Near their all-time highs (within 10%): a big move here would be a breakout, not a rebound</td></tr>` : "";
+      return divider + rowHtml(s, b, ch);
     }).join("") + "</tbody>";
-  function rowHtml(s, b) {
+  function rowHtml(s, b, ch) {
+      const sp = `<td class="sp">${spark(ch?.chart?.slice(-130), s.ath)}</td>`;
       const move = targetPrice(s, state.target) / s.price - 1;
-      if (!b) return `<tr><td></td><td class="l"><span class="tk">${s.ticker}</span><span class="sub">${esc(s.name)}</span></td><td class="down">${pct(s.below_ath)}</td>
+      if (!b) return `<tr><td></td><td class="l"><span class="tk">${s.ticker}</span><span class="sub">${esc(s.name)}</span></td>${sp}<td class="down">${pct(s.below_ath)}</td>
         <td>${s.beta ?? "—"}</td><td class="l muted" colspan="8">No call fits (try a bigger budget or shorter window)</td></tr>`;
       const on = state.picks.some((p) => p.s.ticker === s.ticker);
       return `<tr class="click" data-t="${s.ticker}"><td><input type="checkbox" data-pick="${s.ticker}" ${on ? "checked" : ""} aria-label="Plan a play with ${s.ticker}"></td>
-        <td class="l"><span class="tk">${s.ticker}</span><span class="sub">${esc(s.name)}</span></td>
+        <td class="l"><span class="tk">${s.ticker}</span><span class="sub">${esc(s.name)}</span></td>${sp}
         <td class="down">${pct(s.below_ath)}</td><td>${s.beta ?? "—"}</td>
         <td class="l">$${b.K} call<span class="sub">${b.exp} · ${Math.round(b.dte)} days</span></td>
         <td>${fmt$(b.cost * 100)}</td><td>${pct(-b.beaten)}</td>
@@ -105,7 +106,51 @@ async function renderBoard() {
   }
   // keep the picks in sync with the current scenario
   state.picks = state.picks.map((p) => rows.find((r) => r.s.ticker === p.s.ticker)?.best).filter(Boolean);
+  renderPicks(rows, tname);
+  renderOpp(rows);
   renderPlay();
+}
+
+function renderPicks(rows, tname) {
+  const top = rows.filter((r) => !r.near && r.best).slice(0, 3);
+  $("#picks").innerHTML = top.map(({ s, best: b, ch }) => `
+    <div class="tile pick accent" data-t="${s.ticker}" role="link" tabindex="0">
+      <div class="row"><span class="tk">${s.ticker}</span><span class="pill up">${mult(b.half)} halfway</span></div>
+      <div class="s">$${b.K} call · ${b.exp} · ${fmt$(b.cost * 100)}</div>
+      <div class="spark">${spark(ch?.chart?.slice(-130), s.ath, 300, 40)}</div>
+      <div class="mults"><span class="pill up">${mult(b.full)} if ${esc(tname)}</span><span class="pill down">${pct(b.flat)} if flat</span><span class="pill ${cls(s.below_ath)}">${pct(s.below_ath)} vs ATH</span></div>
+    </div>`).join("");
+}
+
+function renderOpp(rows) {
+  const c = colors();
+  const pts = rows.filter((r) => !r.near && r.best).map((r) => ({ x: +(-r.s.below_ath * 100).toFixed(1), y: +r.best.half.toFixed(2), r: 5 + Math.min(12, (r.s.beta || 1) * 3.5), t: r.s.ticker }));
+  const labels = {
+    id: "labels",
+    afterDatasetsDraw(chart) {
+      const { ctx, scales: { y }, chartArea: a } = chart;
+      ctx.save();
+      const y1 = y.getPixelForValue(1);                    // break-even line: below it, the halfway case loses money
+      if (y1 > a.top && y1 < a.bottom) {
+        ctx.strokeStyle = c.ink; ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(a.left, y1); ctx.lineTo(a.right, y1); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = c.ink; ctx.font = "600 11px Manrope, sans-serif"; ctx.fillText("break-even halfway", a.left + 6, y1 - 6);
+      }
+      ctx.fillStyle = c.text; ctx.font = "700 11px Manrope, sans-serif";
+      chart.getDatasetMeta(0).data.forEach((el, i) => ctx.fillText(pts[i].t, el.x + el.options.radius + 3, el.y + 4));
+      ctx.restore();
+    },
+  };
+  makeChart("oppChart", {
+    type: "bubble",
+    data: { datasets: [{ data: pts, backgroundColor: alpha(c.accent, 0.35), borderColor: c.accent, borderWidth: 1.5, hoverBackgroundColor: alpha(c.accent, 0.6) }] },
+    options: { responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false }, tooltip: { ...tooltip(c), callbacks: { label: (i) => `${pts[i.dataIndex].t}: ${i.raw.x}% below ATH · ${i.raw.y}x halfway` } } },
+      scales: axes(c, { yfmt: (v) => v + "x", x: { ticks: { color: c.ink, callback: (v) => v + "%" }, title: { display: true, text: "below all-time high", color: c.ink } },
+        y: { title: { display: true, text: "pays if halfway", color: c.ink } } }),
+      onClick: (e, els) => { if (els[0]) location.hash = `#/explore/${pts[els[0].index].t}`; } },
+    plugins: [labels],
+  });
 }
 
 function renderPlay() {
@@ -148,12 +193,12 @@ function renderPlay() {
   el.innerHTML = `<div class="card__head"><h2>Your play ${auto ? '<span class="muted small">(top 2 suggested; tick rows above to choose)</span>' : ""}</h2>
       <span class="ctl" style="margin-left:auto"><label>Budget</label><div class="seg" id="planBudget">
       ${[500, 1000, 2500, 5000].map((v) => `<button data-v="${v}" class="${v === budget ? "on" : ""}">${fmt$(v)}</button>`).join("")}</div></span></div>
-    <div class="grid2"><div>
+    <div>
       ${legs.map(({ b, n }) => `<p><b>${n}×</b> ${b.s.ticker} $${b.K} call, ${b.exp} <span class="muted">(${fmt$(b.cost * 100)} each = ${fmt$(n * b.cost * 100)})</span>${n === 0 ? ' <span class="down">· doesn\'t fit what\'s left of the budget</span>' : ""}</p>`).join("")}
       <p class="muted small">Total in options: ${fmt$(spent)} of ${fmt$(budget)}${left >= 1 ? ` (${fmt$(left)} left over)` : ""}. "Same $ in stock" puts the same ${fmt$(spent)} into the shares.</p>
       <div class="verdict">If the rebound happens on time, the options make <b class="${cls(fullO)}">${fmt$(fullO)}</b> vs <b>${fmt$(fullS)}</b> from buying the same stocks.
         If nothing happens for ${state.horizon} days, the options lose <b class="down">${fmt$(Math.abs(flatO))}</b> to time decay; the stocks would be about even.</div>
-    </div><div><table><thead><tr><th class="l">Over ${state.horizon} days</th><th>Options</th><th>Same $ in stock</th></tr></thead><tbody>${rows}</tbody></table></div></div>
+    </div><table><thead><tr><th class="l">Over ${state.horizon} days</th><th>Options</th><th>Same $ in stock</th></tr></thead><tbody>${rows}</tbody></table>
     <p class="note">Concentrated plays only make sense with money you can afford to lose entirely. Rebounds that come late or small can still take an option to $0.</p>`;
 }
 
@@ -161,32 +206,91 @@ function renderPlay() {
 function vixWord(v) { return v < 15 ? "Calm" : v < 20 ? "Normal" : v < 30 ? "Elevated fear" : "High fear"; }
 function pcWord(v) { return v == null ? "" : v > 1.0 ? "Fearful (puts > calls)" : v < 0.7 ? "Optimistic (calls dominate)" : "Neutral"; }
 
+const tile = (k, v, s, c = "") => `<div class="tile accent"><span class="k">${k}</span><span class="v ${c}">${v}</span><span class="s">${s}</span></div>`;
 function renderPulse() {
   const m = state.market;
-  $("#pulse").innerHTML = `
-    <div class="stat"><span>VIX (fear index)</span><b>${m.vix}</b><span>${vixWord(m.vix)}</span></div>
-    <div class="stat"><span>S&P 500 (SPY) vs its all-time high</span><b class="${cls(m.spy_below_ath)}">${pct(m.spy_below_ath, 1)}</b><span>$${m.spy} · high $${m.spy_ath}</span></div>
-    <div class="stat"><span>Market put/call ratio (SPY + QQQ, volume)</span><b>${ratio(m.pc_volume)}</b><span>${pcWord(m.pc_volume)}</span></div>`;
+  $("#pulse").innerHTML = tile("Fear index (VIX)", m.vix, vixWord(m.vix)) +
+    tile("S&P 500 vs its high", pct(m.spy_below_ath, 1), `$${m.spy} · high $${m.spy_ath}`, cls(m.spy_below_ath)) +
+    tile("Market put/call", ratio(m.pc_volume), pcWord(m.pc_volume) + " · SPY + QQQ");
 }
 let charts = {};
-function lineChart(id, labels, sets, opts = {}) {
+function colors() {
+  const c = getComputedStyle(document.documentElement), g = (n) => c.getPropertyValue(n).trim();
+  return { ink: g("--muted"), text: g("--ink"), grid: g("--line"), accent: g("--accent"), silver: g("--silver"), good: g("--good"), bad: g("--bad"), card: g("--card-solid") };
+}
+function alpha(hex, a) {                                // "#a67c1f" → rgba(…, a)
+  const h = hex.replace("#", ""), n = parseInt(h.length === 3 ? h.split("").map((x) => x + x).join("") : h, 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
+function makeChart(id, config) {
   charts[id]?.destroy();
-  const css = getComputedStyle(document.documentElement);
-  const ink = css.getPropertyValue("--muted").trim(), grid = css.getPropertyValue("--line").trim();
-  charts[id] = new Chart(document.getElementById(id), {
-    type: "line", data: { labels, datasets: sets },
+  const el = document.getElementById(id);
+  if (!el) return;
+  Chart.defaults.font.family = "Manrope, -apple-system, sans-serif";
+  Chart.defaults.font.size = 12;
+  charts[id] = new Chart(el, config);
+}
+function axes(c, opts = {}) {
+  return {
+    x: { ticks: { color: c.ink, maxTicksLimit: 8 }, grid: { display: false }, border: { color: c.grid }, ...(opts.x || {}) },
+    y: { ticks: { color: c.ink, callback: opts.yfmt, maxTicksLimit: 6 }, grid: { color: c.grid }, border: { display: false }, ...(opts.y || {}) },
+  };
+}
+function tooltip(c) { return { backgroundColor: c.card, titleColor: c.text, bodyColor: c.text, borderColor: c.grid, borderWidth: 1, padding: 10, cornerRadius: 10, boxPadding: 4 }; }
+function lineChart(id, labels, sets, opts = {}) {
+  const c = colors();
+  makeChart(id, { type: "line", data: { labels, datasets: sets },
     options: { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: "index", intersect: false },
-      plugins: { legend: { display: sets.length > 1, labels: { color: ink, boxWidth: 12 } }, tooltip: opts.tooltip || {} },
-      scales: { x: { ticks: { color: ink, maxTicksLimit: 8 }, grid: { color: grid }, ...(opts.x || {}) },
-                y: { ticks: { color: ink, callback: opts.yfmt }, grid: { color: grid } } } },
-  });
+      plugins: { legend: { display: sets.length > 1, labels: { color: c.ink, boxWidth: 8, boxHeight: 8, usePointStyle: true } }, tooltip: tooltip(c) },
+      scales: axes(c, opts) } });
+}
+const area = (color) => (ctx) => {                      // soft fade under a line
+  const { chart } = ctx, { ctx: g, chartArea: a } = chart;
+  if (!a) return "transparent";
+  const grad = g.createLinearGradient(0, a.top, 0, a.bottom);
+  grad.addColorStop(0, alpha(color, 0.22)); grad.addColorStop(1, alpha(color, 0));
+  return grad;
+};
+function spark(points, ath, w = 86, h = 26) {          // tiny 1-year price line, gold dashes = all-time high (if in range)
+  if (!points || points.length < 2) return "";
+  const ys = points.map((p) => p[1]), lo = Math.min(...ys), hi = Math.max(...ys);
+  const top = ath && ath <= hi * 1.6 ? Math.max(hi, ath) : hi;
+  const x = (i) => (i / (ys.length - 1)) * w, y = (v) => h - 2 - ((v - lo) / (top - lo || 1)) * (h - 4);
+  const d = ys.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  const col = ys[ys.length - 1] >= ys[0] ? "var(--good)" : "var(--bad)";
+  const athLine = ath && ath <= top ? `<line x1="0" x2="${w}" y1="${y(ath).toFixed(1)}" y2="${y(ath).toFixed(1)}" stroke="var(--accent)" stroke-dasharray="3 3" stroke-width="1" vector-effect="non-scaling-stroke"/>` : "";
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">${athLine}<path d="${d}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg>`;
 }
 function renderMarket() {
-  const m = state.market;
+  const m = state.market, c = colors();
   $("#marketStats").innerHTML = $("#pulse").innerHTML;
-  const css = getComputedStyle(document.documentElement);
-  lineChart("vixChart", m.vix_chart.map((p) => p[0]), [{ label: "VIX", data: m.vix_chart.map((p) => p[1]), borderColor: css.getPropertyValue("--accent").trim(), pointRadius: 0, borderWidth: 2 },
-    { label: "20 = elevated fear", data: m.vix_chart.map(() => 20), borderColor: css.getPropertyValue("--warn").trim(), borderDash: [5, 4], pointRadius: 0, borderWidth: 1 }]);
+  const lab = m.vix_chart.map((p) => p[0]);
+  lineChart("vixChart", lab, [
+    { label: "VIX", data: m.vix_chart.map((p) => p[1]), borderColor: c.accent, backgroundColor: area(c.accent), fill: true, pointRadius: 0, borderWidth: 2, tension: 0.25 },
+    { label: "20 · elevated", data: lab.map(() => 20), borderColor: c.silver, borderDash: [5, 4], pointRadius: 0, borderWidth: 1 },
+    { label: "30 · panic", data: lab.map(() => 30), borderColor: c.bad, borderDash: [5, 4], pointRadius: 0, borderWidth: 1 }]);
+  const dd = [...state.index.stocks].sort((a, b) => a.below_ath - b.below_ath);
+  $("#ddChart").parentElement.style.height = Math.max(260, dd.length * 18 + 50) + "px";     // room for every stock
+  makeChart("ddChart", {
+    type: "bar",
+    data: { labels: dd.map((s) => s.ticker), datasets: [{ data: dd.map((s) => +(s.below_ath * 100).toFixed(1)),
+      backgroundColor: dd.map((s) => alpha(s.below_ath < -0.5 ? c.bad : s.below_ath < -0.2 ? c.accent : c.silver, 0.75)), borderRadius: 4, barThickness: 11 }] },
+    options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false }, tooltip: { ...tooltip(c), callbacks: { label: (i) => `${i.raw}% below all-time high` } } },
+      scales: { x: { ticks: { color: c.ink, callback: (v) => v + "%" }, grid: { color: c.grid }, border: { display: false }, max: 0 },
+                y: { ticks: { color: c.text, autoSkip: false, font: { size: 11, weight: "700" } }, grid: { display: false } } },
+      onClick: (e, els) => { if (els[0]) location.hash = `#/explore/${dd[els[0].index].ticker}`; } },
+  });
+  const h = (m.history || []).filter((x) => x.pc != null);
+  $("#pcHistCard").hidden = h.length < 3;
+  if (h.length >= 3) {
+    makeChart("pcHist", { type: "line", data: { labels: h.map((x) => x.date), datasets: [
+        { label: "Put/call", data: h.map((x) => x.pc), borderColor: c.accent, pointRadius: 2, borderWidth: 2, yAxisID: "y" },
+        { label: "VIX", data: h.map((x) => x.vix), borderColor: c.silver, pointRadius: 2, borderWidth: 1.5, yAxisID: "y1" }] },
+      options: { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: "index", intersect: false },
+        plugins: { legend: { labels: { color: c.ink, boxWidth: 8, boxHeight: 8, usePointStyle: true } }, tooltip: tooltip(c) },
+        scales: { ...axes(c), y1: { position: "right", ticks: { color: c.ink }, grid: { display: false }, border: { display: false } } } } });
+  }
   const rows = [...state.index.stocks].filter((s) => s.pc_volume != null).sort((a, b) => b.pc_volume - a.pc_volume);
   $("#pcTable").innerHTML = `<thead><tr><th class="l">Stock</th><th>Put/call (volume today)</th><th>Put/call (open interest)</th><th class="l">Read</th><th>Below ATH</th></tr></thead><tbody>` +
     rows.map((s) => `<tr class="click" data-t="${s.ticker}"><td class="l tk">${s.ticker}</td><td>${ratio(s.pc_volume)}</td><td>${ratio(s.pc_oi)}</td><td class="l muted">${pcWord(s.pc_volume)}</td><td class="down">${pct(s.below_ath)}</td></tr>`).join("") + "</tbody>";
@@ -254,10 +358,11 @@ function renderExplorer() {
   const valueAt = (Sx, Tx) => bs(ex.type, Sx, K, Tx, Math.max(0.01, ivAfter(iv, Sx / S - 1) * (1 + ex.ivchg)));
 
   $("#exploreBody").innerHTML = `
-  <div class="grid3">
-    <div class="stat"><span>${esc(d.name)}</span><b>$${S}</b><span class="down">${pct(d.below_ath)} vs all-time high $${d.ath} (${d.ath_date})</span></div>
-    <div class="stat"><span>Beta vs S&P 500 · volatility</span><b>${d.beta ?? "—"}</b><span>1-yr volatility ${pctPlain(d.hv)} · option IV ${d.atm_iv ? pctPlain(d.atm_iv) : "—"}</span></div>
-    <div class="stat"><span>Put/call ratio (volume · open interest)</span><b>${ratio(d.pc_volume)} · ${ratio(d.pc_oi)}</b><span>${pcWord(d.pc_volume)}</span></div>
+  <div class="tiles t4">
+    ${tile(esc(d.name), "$" + S, `<span class="down">${pct(d.below_ath)}</span> vs high $${d.ath} (${d.ath_date})`)}
+    ${tile("Beta vs S&P 500", d.beta ?? "—", "moves " + (d.beta ? d.beta.toFixed(1) + "× the market" : "—"))}
+    ${tile("Volatility", d.atm_iv ? pctPlain(d.atm_iv) : "—", `option IV · actual 1-yr ${pctPlain(d.hv)}`)}
+    ${tile("Put/call", ratio(d.pc_volume), `${pcWord(d.pc_volume)} · open interest ${ratio(d.pc_oi)}`)}
   </div>
   <div class="card"><div class="card__head"><h2>${d.ticker}, last 2 years</h2></div><div class="chart"><canvas id="priceChart"></canvas></div></div>
   <div class="card">
@@ -266,7 +371,7 @@ function renderExplorer() {
       <div class="ctl"><label>Expiration</label><select id="exExp">${exps.map((e) => `<option value="${e}" ${e === ex.exp ? "selected" : ""}>${e} (${Math.round(daysTo(e))} days)</option>`).join("")}</select></div>
       <div class="ctl"><label>Strike</label><select id="exK">${side.map((x) => `<option value="${x[0]}" ${x[0] === K ? "selected" : ""}>$${x[0]}${Math.abs(x[0] - S) / S < 0.02 ? " (at the money)" : ""}</option>`).join("")}</select></div>
     </div>
-    <div class="greeks" style="margin-top:14px">
+    <div class="greeks">
       <div><span>Cost (1 contract)</span><b>${fmt$(cost * 100)}</b><span>bid ${bid} · ask ${ask}</span></div>
       <div><span>Breakeven at expiration</span><b>$${be.toFixed(2)}</b><span>${pct(be / S - 1, 1)} from today</span></div>
       <div><span>Beaten down</span><b>${atAth > 0 ? pct(-(1 - cost / atAth)) : "—"}</b><span>vs ${fmt$(atAth * 100)} if the stock were at its ATH</span></div>
@@ -291,30 +396,66 @@ function renderExplorer() {
       <p class="note">IV eases up to 10% as the stock rallies and rises up to 20% as it falls; your IV slider applies on top.</p></div>
     </div>
   </div>
-  <div class="card"><div class="card__head"><h2>Time decay if the stock goes nowhere</h2><span class="muted small">Theta speeds up as expiration nears</span></div><div class="chart"><canvas id="decayChart"></canvas></div></div>`;
+  <div class="grid2">
+    <div class="card"><div class="card__head"><h2>Time decay if the stock goes nowhere</h2><span class="muted small">Theta speeds up near expiration</span></div><div class="chart"><canvas id="decayChart"></canvas></div></div>
+    <div class="card"><div class="card__head"><h2>Volatility smile, ${ex.exp}</h2><span class="muted small">Higher = pricier strikes</span></div><div class="chart"><canvas id="smileChart"></canvas></div></div>
+  </div>
+  <div class="card"><div class="card__head"><h2>Where traders are positioned, ${ex.exp}</h2><span class="muted small">Open interest by strike: calls vs puts</span></div><div class="chart short"><canvas id="oiChart"></canvas></div></div>`;
 
   // price chart with the all-time high line
-  const css = getComputedStyle(document.documentElement), acc = css.getPropertyValue("--accent").trim(), warn = css.getPropertyValue("--warn").trim(), bad = css.getPropertyValue("--bad").trim(), good = css.getPropertyValue("--good").trim();
-  lineChart("priceChart", d.chart.map((p) => p[0]), [{ label: d.ticker, data: d.chart.map((p) => p[1]), borderColor: acc, pointRadius: 0, borderWidth: 2 },
-    { label: `All-time high $${d.ath}`, data: d.chart.map(() => d.ath), borderColor: warn, borderDash: [5, 4], pointRadius: 0, borderWidth: 1 }], { yfmt: (v) => "$" + v });
+  const C = colors(), acc = C.accent, bad = C.bad, good = C.good;
+  lineChart("priceChart", d.chart.map((p) => p[0]), [{ label: d.ticker, data: d.chart.map((p) => p[1]), borderColor: acc, backgroundColor: area(acc), fill: true, pointRadius: 0, borderWidth: 2, tension: 0.2 },
+    { label: `All-time high $${d.ath}`, data: d.chart.map(() => d.ath), borderColor: C.silver, borderDash: [5, 4], pointRadius: 0, borderWidth: 1 }], { yfmt: (v) => "$" + v });
   // payoff across stock prices: today, after the chosen days, at expiration
   const lo = S * 0.6, hi = Math.max(d.ath * 1.08, S * 1.6), xs = Array.from({ length: 60 }, (_, i) => lo + (hi - lo) * i / 59);
   const curve = (Tx) => xs.map((x) => +(valueAt(x, Tx) * 100 - cost * 100).toFixed(0));
   lineChart("payChart", xs.map((x) => "$" + x.toFixed(0)), [
-    { label: "Today", data: curve(T), borderColor: acc, pointRadius: 0, borderWidth: 2 },
-    { label: `After ${ex.horizon} days`, data: curve(Th), borderColor: good, pointRadius: 0, borderWidth: 2 },
+    { label: "Today", data: curve(T), borderColor: C.silver, pointRadius: 0, borderWidth: 1.5 },
+    { label: `After ${ex.horizon} days`, data: curve(Th), borderColor: acc, pointRadius: 0, borderWidth: 2.5 },
     { label: "At expiration", data: curve(0), borderColor: bad, pointRadius: 0, borderWidth: 1.5, borderDash: [4, 3] }],
     { yfmt: (v) => (v < 0 ? "-$" : "$") + Math.abs(v) });
   // time decay at today's price
   const days = Array.from({ length: Math.max(2, Math.ceil(dte) + 1) }, (_, i) => i).filter((i, _, a) => a.length < 120 || i % Math.ceil(a.length / 120) === 0 || i === Math.ceil(dte));
-  lineChart("decayChart", days.map((i) => i + "d"), [{ label: "Option value", data: days.map((i) => +(bs(ex.type, S, K, Math.max(0, (dte - i) / 365), iv) * 100).toFixed(0)), borderColor: bad, pointRadius: 0, borderWidth: 2 }],
+  lineChart("decayChart", days.map((i) => i + "d"), [{ label: "Option value", data: days.map((i) => +(bs(ex.type, S, K, Math.max(0, (dte - i) / 365), iv) * 100).toFixed(0)), borderColor: bad, backgroundColor: area(bad), fill: true, pointRadius: 0, borderWidth: 2 }],
     { yfmt: (v) => "$" + v });
+  // volatility smile and open interest for this expiration (strikes within ±45% of the price)
+  const near = (rowsx) => rowsx.filter((x) => x[0] >= S * 0.55 && x[0] <= S * 1.45);
+  const calls = near(d.chains[ex.exp].calls), puts = near(d.chains[ex.exp].puts);
+  const strikes = [...new Set([...calls, ...puts].map((x) => x[0]))].sort((a, b) => a - b);
+  const byK = (rowsx, i) => { const m = new Map(rowsx.map((x) => [x[0], x[i]])); return strikes.map((k) => m.get(k) ?? null); };
+  const ivs = (arr) => arr.map((v) => (v && v > 0.05 && v < 5 ? +(v * 100).toFixed(1) : null));
+  lineChart("smileChart", strikes.map((k) => "$" + k), [
+    { label: "Calls", data: ivs(byK(calls, 4)), borderColor: acc, pointRadius: 0, borderWidth: 2, spanGaps: true, tension: 0.3 },
+    { label: "Puts", data: ivs(byK(puts, 4)), borderColor: C.silver, pointRadius: 0, borderWidth: 2, spanGaps: true, tension: 0.3 }], { yfmt: (v) => v + "%" });
+  makeChart("oiChart", { type: "bar", data: { labels: strikes.map((k) => "$" + k), datasets: [
+      { label: "Calls", data: byK(calls, 5), backgroundColor: alpha(acc, 0.75), borderRadius: 3 },
+      { label: "Puts", data: byK(puts, 5), backgroundColor: alpha(C.silver, 0.6), borderRadius: 3 }] },
+    options: { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: "index", intersect: false },
+      plugins: { legend: { labels: { color: C.ink, boxWidth: 8, boxHeight: 8, usePointStyle: true } }, tooltip: tooltip(C) },
+      scales: axes(C, { yfmt: (v) => (v >= 1000 ? v / 1000 + "k" : v) }) } });
 
   $("#exExp").onchange = (e) => { ex.exp = e.target.value; ex.horizon = null; renderExplorer(); };
   $("#exK").onchange = (e) => { ex.K = +e.target.value; renderExplorer(); };
   $$("#exType button").forEach((b) => (b.onclick = () => { ex.type = b.dataset.v; ex.K = null; renderExplorer(); }));
   $("#hz").oninput = (e) => { ex.horizon = +e.target.value; renderExplorer(); $("#hz").focus(); };
   $("#ivc").oninput = (e) => { ex.ivchg = +e.target.value / 100; renderExplorer(); $("#ivc").focus(); };
+}
+
+// ---------------------------------------------------------------- themes (morning silver, afternoon graphite, evening onyx)
+function autoTheme() { const h = new Date().getHours(); return h >= 6 && h < 12 ? "silver" : h >= 12 && h < 18 ? "graphite" : "onyx"; }
+function themeChoice() { try { return localStorage.getItem("theme") || "auto"; } catch (e) { return "auto"; } }
+function applyTheme() {
+  const choice = themeChoice(), t = choice === "auto" ? autoTheme() : choice;
+  $$(".sw").forEach((b) => b.classList.toggle("on", b.dataset.theme === choice));
+  if (document.documentElement.dataset.theme === t) return;
+  document.documentElement.dataset.theme = t;
+  redrawCharts();
+}
+function redrawCharts() {
+  if (state.rows) renderOpp(state.rows);
+  const tab = location.hash.split("/")[1] || "board";
+  if (tab === "explore" && ex.data && $("#exK")) renderExplorer();
+  if (tab === "market") renderMarket();
 }
 
 // ---------------------------------------------------------------- routing + wiring
@@ -343,6 +484,9 @@ async function init() {
   }
   const mins = Math.round((Date.now() - new Date(state.index.updated)) / 60000);
   $("#updated").textContent = `Prices from ${mins < 60 ? mins + " min" : Math.round(mins / 60) + " h"} ago`;
+  $("#dot").classList.toggle("stale", mins > 45);
+  applyTheme();
+  setInterval(applyTheme, 5 * 60 * 1000);
   $("#tickerList").innerHTML = state.index.stocks.map((s) => `<option value="${s.ticker}">${esc(s.name)}</option>`).join("");
   renderPulse();
   seg("target", "target", renderBoard); seg("horizon", "horizon", renderBoard); seg("budget", "budget", renderBoard);
@@ -357,7 +501,9 @@ async function init() {
     }
     const pb = e.target.closest("#planBudget button");
     if (pb) { state.planBudget = +pb.dataset.v; renderPlay(); return; }
-    const row = e.target.closest("tr.click");
+    const sw = e.target.closest(".sw");
+    if (sw) { try { localStorage.setItem("theme", sw.dataset.theme); } catch (err) {} applyTheme(); return; }
+    const row = e.target.closest("tr.click, .pick[data-t]");
     if (row && !e.target.closest("input")) location.hash = `#/explore/${row.dataset.t}`;
   });
   $("#go").onclick = () => (location.hash = `#/explore/${$("#tickerInput").value.trim().toUpperCase()}`);
