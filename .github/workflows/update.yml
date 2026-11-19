@@ -56,3 +56,10 @@ jobs:
           path: site
       - id: deploy
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346   # v5.0.1
+        continue-on-error: true          # GitHub sometimes can't see the just-uploaded files for a moment
+      - name: Wait, then retry publishing once
+        if: steps.deploy.outcome == 'failure'
+        run: sleep 20
+      - id: deploy_retry
+        if: steps.deploy.outcome == 'failure'
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346   # v5.0.1
