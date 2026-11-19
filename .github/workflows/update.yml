@@ -38,7 +38,7 @@ jobs:
       - run: pip install -r scanner/requirements.txt
       - name: Scan the watchlist
         env:
-          SITE_URL: https://ftalla18.github.io/options-rebound
+          SITE_URL: https://options-rebound.github.io
         run: python scanner/scan.py
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

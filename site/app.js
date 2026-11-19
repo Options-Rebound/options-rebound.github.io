@@ -1,7 +1,7 @@
 // Options Rebound: everything here runs in the browser from the JSON the scanner publishes.
 "use strict";
 
-const REPO = "FTalla18/options-rebound";
+const REPO = "Options-Rebound/options-rebound.github.io";
 const RATE = 0.04;                     // risk-free rate for pricing
 const IV_RALLY = -0.10, IV_SELLOFF = 0.20;
 const $ = (s, el = document) => el.querySelector(s);

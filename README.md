@@ -2,7 +2,7 @@
 
 Finds beaten-down call options that pay the most if a stock rebounds, and shows what you lose if it doesn't.
 
-**Site:** https://ftalla18.github.io/options-rebound
+**Site:** https://options-rebound.github.io
 
 - **Rebound board:** each stock's best call for a rebound you choose (+20% / +30% / +50% / back to the all-time high, within 1–6 months), ranked by what it pays if the stock only gets halfway there. Tick up to 2 to plan a play with a budget, compared with buying the same stocks.
 - **Explorer:** any tracked ticker, every expiration and strike, Greeks (delta, gamma, theta, vega), a what-if table and payoff chart with sliders for time and implied volatility, and the time-decay curve.
