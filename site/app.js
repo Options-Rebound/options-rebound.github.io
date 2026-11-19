@@ -96,7 +96,7 @@ async function renderBoard() {
         <td>${s.beta ?? "—"}</td><td class="l muted" colspan="8">No call fits (try a bigger budget or shorter window)</td></tr>`;
       const on = state.picks.some((p) => p.s.ticker === s.ticker);
       return `<tr class="click" data-t="${s.ticker}"><td><input type="checkbox" data-pick="${s.ticker}" ${on ? "checked" : ""} aria-label="Plan a play with ${s.ticker}"></td>
-        <td class="l"><span class="tk">${s.ticker}</span><span class="sub">${esc(s.name)}</span></td>${sp}
+        <td class="l"><span class="tk">${s.ticker}</span>${state.own?.[s.ticker] ? `<span class="own" title="Already in your portfolio: a call adds to this exposure">own ${pctPlain(state.own[s.ticker])}</span>` : ""}<span class="sub">${esc(s.name)}</span></td>${sp}
         <td class="down">${pct(s.below_ath)}</td><td>${s.beta ?? "—"}</td>
         <td class="l">$${b.K} call<span class="sub">${b.exp} · ${Math.round(b.dte)} days</span></td>
         <td>${fmt$(b.cost * 100)}</td><td>${pct(-b.beaten)}</td>
@@ -456,6 +456,94 @@ function redrawCharts() {
   const tab = location.hash.split("/")[1] || "board";
   if (tab === "explore" && ex.data && $("#exK")) renderExplorer();
   if (tab === "market") renderMarket();
+  if (tab === "portfolio") renderPortfolio();
+}
+
+// ---------------------------------------------------------------- portfolio: optimized core + option satellite
+const pfState = { capital: 10000, sat: 0.1, core: "optimized" };
+
+function pickForBudget(budget) {                        // the board's best calls that fit the satellite money
+  if (state.picks.length) return state.picks;
+  const out = []; let left = budget;
+  for (const r of (state.rows || []).filter((r) => !r.near && r.best)) {
+    if (r.best.cost * 100 <= left) { out.push(r.best); left -= r.best.cost * 100; }
+    if (out.length === 2) break;
+  }
+  return out;
+}
+
+function renderPortfolio() {
+  const pf = state.pf;
+  if (!pf) { $("#portfolio").innerHTML = `<div class="card empty">Portfolio data isn't available yet. It appears after the next update.</div>`; return; }
+  const m = pf.mixes, c = colors();
+  const t = (name, x, cl = "") => tile(name, pct(x.stats.ret) + ` <span class="muted small" style="font-size:14px">a year</span>`,
+    `volatility ${pctPlain(x.stats.vol)} · Sharpe ${x.stats.sharpe.toFixed(2)} · worst drop ${pct(x.max_dd)} · beta ${x.beta.toFixed(2)}`, cl);
+  $("#pfTiles").innerHTML = t("Your current mix", m.current) + t("Optimized (best return per risk)", m.optimized) + t("S&P 500", m.spy);
+
+  // ----- core + satellite planner
+  const core = m[pfState.core], capital = pfState.capital, satCash = capital * pfState.sat, coreCash = capital - satCash;
+  const legs = [], picks = pfState.sat > 0 ? pickForBudget(satCash) : [];
+  let left = satCash, added = true;
+  picks.forEach((b) => legs.push({ b, n: 0 }));
+  while (added) { added = false; for (const l of legs) if (l.b.cost * 100 <= left) { l.n++; left -= l.b.cost * 100; added = true; } }
+  const optCost = legs.reduce((a, l) => a + l.n * l.b.cost * 100, 0);
+  const h = state.horizon;
+  const satValue = (mkt) => legs.reduce((a, { b, n }) => {
+    const sm = Math.max(-0.9, (b.s.beta || 1) * mkt), St = b.s.price * (1 + sm);
+    return a + n * 100 * bs("call", St, b.K, Math.max(0, (b.dte - h) / 365), ivAfter(b.iv, sm));
+  }, 0) + left;                                         // unspent satellite cash stays as cash
+  const moves = [[-0.2, "−20%"], [-0.1, "−10%"], [0, "Flat"], [0.1, "+10%"], [0.2, "+20%"], [0.3, "+30%"]];
+  const rows = moves.map(([mv, label]) => {
+    const coreP = coreCash * core.beta * mv, satP = satValue(mv) - satCash, tot = coreP + satP, spyP = capital * mv;
+    return `<tr><td class="l">${label}</td><td class="${cls(coreP)}">${fmt$(coreP)}</td><td class="${cls(satP)}">${fmt$(satP)}</td>
+      <td class="${cls(tot)}"><b>${fmt$(tot)}</b></td><td class="${cls(tot / capital)}">${pct(tot / capital, 1)}</td><td class="muted">${fmt$(spyP)}</td></tr>`;
+  }).join("");
+  const segB = (id, vals, cur, f) => `<div class="seg" id="${id}">${vals.map((v) => `<button data-v="${v}" class="${v === cur ? "on" : ""}">${f(v)}</button>`).join("")}</div>`;
+  $("#plan").innerHTML = `<div class="card__head"><h2>Core + satellite plan</h2><span class="muted small">A diversified core plus 1–2 rebound calls from the Board, over ${h} days (set on the Board)</span></div>
+    <div class="controls" style="margin-bottom:14px">
+      <div class="ctl"><label>Total capital</label>${segB("pfCap", [5000, 10000, 25000, 50000], capital, (v) => fmt$(v))}</div>
+      <div class="ctl"><label>In options (satellite)</label>${segB("pfSat", [0, 0.05, 0.1, 0.2], pfState.sat, (v) => pctPlain(v))}</div>
+      <div class="ctl"><label>Core</label>${segB("pfCore", ["optimized", "current"], pfState.core, (v) => (v === "optimized" ? "Optimized" : "My current mix"))}</div>
+    </div>
+    <div class="grid2"><div>
+      <p><b>Core:</b> ${fmt$(coreCash)} in ${pfState.core === "optimized" ? "the optimized mix" : "your current mix"} (beta ${core.beta}, so it moves about ${core.beta}× the market).</p>
+      <p><b>Satellite:</b> ${legs.length ? legs.map(({ b, n }) => `${n}× ${b.s.ticker} $${b.K} call (${b.exp})`).join(", ") + ` = ${fmt$(optCost)}` : "none"}${left >= 1 && legs.length ? `, ${fmt$(left)} kept as cash` : ""}.</p>
+      ${pfState.sat > 0 && !legs.length ? `<p class="down small">No board call fits ${fmt$(satCash)}; raise the capital or the satellite share.</p>` : ""}
+      <p class="muted small">Stocks are assumed to move by their beta times the market; options are repriced with each one's own volatility. Tick calls on the Board to choose the satellite yourself.</p>
+    </div><div class="tablewrap"><table><thead><tr><th class="l">If the market moves</th><th>Core</th><th>Satellite</th><th>Total</th><th>Return</th><th>All in S&P 500</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  [["pfCap", "capital"], ["pfSat", "sat"], ["pfCore", "core"]].forEach(([id, key]) =>
+    $$(`#${id} button`).forEach((b) => (b.onclick = () => { pfState[key] = key === "core" ? b.dataset.v : +b.dataset.v; renderPortfolio(); })));
+
+  // ----- efficient frontier
+  const pt = (x, label, color, style = "circle", r = 7) => ({ label, data: [{ x: +(x.stats.vol * 100).toFixed(1), y: +(x.stats.ret * 100).toFixed(1) }],
+    backgroundColor: color, borderColor: c.text, borderWidth: 1, pointRadius: r, pointHoverRadius: r + 2, pointStyle: style });
+  makeChart("frontierChart", { type: "scatter", data: { datasets: [
+      { label: "Possible mixes", data: pf.cloud.map(([v, r]) => ({ x: +(v * 100).toFixed(1), y: +(r * 100).toFixed(1) })), backgroundColor: alpha(c.silver, 0.18), pointRadius: 2, pointHoverRadius: 2 },
+      { label: "Efficient frontier", type: "line", data: pf.frontier.map(([v, r]) => ({ x: +(v * 100).toFixed(1), y: +(r * 100).toFixed(1) })), borderColor: c.accent, borderWidth: 2.5, pointRadius: 0, tension: 0.3 },
+      pt(m.current, "Your mix", c.silver), pt(m.optimized, "Optimized", c.accent, "star", 11), pt(m.min_vol, "Lowest risk", c.good, "rectRot"), pt(m.spy, "S&P 500", c.bad, "triangle")] },
+    options: { responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { labels: { color: c.ink, boxWidth: 8, boxHeight: 8, usePointStyle: true, filter: (i) => i.text !== "Possible mixes" } },
+        tooltip: { ...tooltip(c), callbacks: { label: (i) => `${i.dataset.label}: ${i.raw.y}% a year at ${i.raw.x}% volatility` } } },
+      scales: axes(c, { yfmt: (v) => v + "%", x: { ticks: { color: c.ink, callback: (v) => v + "%" }, title: { display: true, text: "risk (volatility a year)", color: c.ink } },
+        y: { title: { display: true, text: "expected return a year", color: c.ink } } }) } });
+
+  // ----- growth of $10,000
+  const g = pf.growth;
+  lineChart("growthChart", g.dates, [
+    { label: "Optimized", data: g.optimized, borderColor: c.accent, pointRadius: 0, borderWidth: 2.5 },
+    { label: "Your mix", data: g.current, borderColor: c.silver, pointRadius: 0, borderWidth: 2 },
+    { label: "S&P 500", data: g.spy, borderColor: c.bad, pointRadius: 0, borderWidth: 1.5, borderDash: [4, 3] }], { yfmt: (v) => "$" + (v / 1000).toFixed(0) + "k" });
+
+  // ----- biggest weight changes
+  const shifts = [...pf.assets].map((a) => ({ ...a, d: a.optimized - a.current })).sort((a, b) => Math.abs(b.d) - Math.abs(a.d)).slice(0, 16);
+  const max = Math.max(...shifts.map((a) => Math.max(a.current, a.optimized)), 0.01);
+  $("#shiftTable").innerHTML = `<thead><tr><th class="l">Stock</th><th class="l">Sector</th><th>Now</th><th>Optimized</th><th class="l"></th><th>Change</th><th>Expected return</th><th>Volatility</th></tr></thead><tbody>` +
+    shifts.map((a) => `<tr class="click" data-t="${a.t}"><td class="l tk">${a.t}${a.watchlist ? '<span class="sub">on the watchlist</span>' : ""}</td><td class="l muted">${esc(a.sector)}</td>
+      <td>${pctPlain(a.current)}</td><td><b>${pctPlain(a.optimized)}</b></td>
+      <td class="l"><span class="bar cur" style="width:${(a.current / max) * 70}px"></span><br><span class="bar" style="width:${(a.optimized / max) * 70}px"></span></td>
+      <td class="${cls(a.d)}">${a.d > 0 ? "+" : ""}${(a.d * 100).toFixed(1)} pts</td><td>${pct(a.mu)}</td><td>${pctPlain(a.vol)}</td></tr>`).join("") + "</tbody>";
+  $("#pfNote").textContent = `Expected returns blend each stock's last 2 years with what its beta implies (risk-free ${pctPlain(pf.rf)} + beta × 6%), so the optimizer doesn't just chase recent winners. ` +
+    `${pf.assets.length} stocks considered${pf.dropped.length ? ` (${pf.dropped.join(", ")} skipped: not enough price history)` : ""}. Estimates, not investment advice.`;
 }
 
 // ---------------------------------------------------------------- routing + wiring
@@ -465,7 +553,8 @@ function show(tab) {
 }
 function route() {
   const [, tab = "board", arg] = location.hash.split("/");
-  show(["board", "explore", "market"].includes(tab) ? tab : "board");
+  show(["board", "explore", "portfolio", "market"].includes(tab) ? tab : "board");
+  if (tab === "portfolio") renderPortfolio();
   if (tab === "explore") openTicker(arg || ex.t || "");
   if (tab === "market") renderMarket();
 }
@@ -479,6 +568,8 @@ function seg(id, key, cb) {
 async function init() {
   try {
     [state.index, state.market] = await Promise.all([getJSON("data/index.json"), getJSON("data/market.json")]);
+    state.pf = await getJSON("data/portfolio.json").catch(() => null);
+    state.own = Object.fromEntries((state.pf?.assets || []).filter((a) => a.current > 0).map((a) => [a.t, a.current]));
   } catch (e) {
     $("#board").innerHTML = `<div class="card empty">Couldn't load market data yet. The first scan may still be running; try again in a few minutes.</div>`; return;
   }

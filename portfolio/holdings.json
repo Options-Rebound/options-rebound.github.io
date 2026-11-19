@@ -1,0 +1,36 @@
+{
+  "_note": "Current portfolio weights (from Optimus Portfolio, Version 10). Renormalized to 100% by the scanner. USD, ACR and UI are left out (not available as stocks on Yahoo).",
+  "weights": {
+    "SGOV": 0.08, "STX": 0.04, "GLD": 0.04, "AMD": 0.04,
+    "GOOG": 0.03, "AMZN": 0.03, "MRVL": 0.03, "MU": 0.03, "VNQ": 0.03,
+    "APP": 0.02, "ANET": 0.02, "BE": 0.02, "AVGO": 0.02, "CEG": 0.02, "CRWD": 0.02, "LLY": 0.02, "INTU": 0.02,
+    "META": 0.02, "MSFT": 0.02, "NVDA": 0.02, "PLTR": 0.02, "VRTX": 0.02, "WDC": 0.02,
+    "ADPT": 0.01, "ARM": 0.01, "ASML": 0.01, "BRK-B": 0.01, "CAT": 0.01, "DDOG": 0.01, "DELL": 0.01, "SOXL": 0.01,
+    "ENPH": 0.01, "XOM": 0.01, "HPE": 0.01, "IREN": 0.01, "IEFA": 0.01, "SLVP": 0.01, "JPM": 0.01, "LMT": 0.01,
+    "MDB": 0.01, "MP": 0.01, "ORCL": 0.01, "HOOD": 0.01, "RKT": 0.01, "SOFI": 0.01, "SMCI": 0.01, "SYM": 0.01,
+    "TSM": 0.01, "TSLA": 0.01, "RIG": 0.01, "PATH": 0.01, "VRT": 0.01, "WMT": 0.01, "ZS": 0.01
+  },
+  "tiers": {
+    "ultra": ["HOOD", "SOFI", "VRT", "ARM", "TSLA", "BE", "DDOG", "MDB", "ENPH", "SOXL", "SMCI", "IREN", "RIG", "SYM", "ADPT", "PATH", "MP", "RKT"],
+    "high": ["NVDA", "AMD", "PLTR", "CRWD", "ZS", "CEG", "ANET", "META", "MRVL", "APP", "MU", "STX", "WDC", "HPE"],
+    "anchor": ["GOOG", "AMZN", "MSFT", "ORCL", "ASML", "TSM", "AVGO", "INTU", "DELL", "GLD", "SGOV", "VNQ", "IEFA", "BRK-B", "WMT", "CAT", "LMT", "JPM", "LLY", "VRTX", "XOM", "SLVP"]
+  },
+  "caps": { "ultra": 0.05, "high": 0.08, "anchor": 0.12 },
+  "sectors": {
+    "AI Compute": ["NVDA", "AMD", "MU", "ASML", "TSM", "ARM", "MRVL", "AVGO", "SMCI", "SOXL", "USD"],
+    "Networking": ["ANET"],
+    "Power & Energy": ["CEG", "BE", "VRT", "ENPH", "XOM", "RIG"],
+    "Data & Software": ["MDB", "ORCL", "INTU", "DDOG", "WDC", "STX", "HPE"],
+    "AI Platforms": ["PLTR", "APP", "PATH", "SYM"],
+    "Cybersecurity": ["CRWD", "ZS"],
+    "Cloud & Hyperscale": ["GOOG", "AMZN", "MSFT", "DELL", "CRWV"],
+    "FinTech & Consumer": ["META", "HOOD", "SOFI", "RKT", "JPM", "CRCL", "FIGR", "AAPL", "SPG"],
+    "EV & Automation": ["TSLA", "ADPT", "AXON", "ONDS"],
+    "Healthcare": ["LLY", "VRTX", "AGIO"],
+    "Defense & Industrial": ["LMT", "CAT", "SPCX"],
+    "Consumer Staples": ["WMT", "BRK-B"],
+    "Alternatives": ["GLD", "IEFA", "SLVP", "VNQ", "MP", "IREN", "AG", "RIOT", "QBTS"],
+    "Leveraged ETFs": ["TQQQ"],
+    "Cash & Fixed Income": ["SGOV"]
+  }
+}

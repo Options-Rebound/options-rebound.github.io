@@ -6,6 +6,7 @@ Finds beaten-down call options that pay the most if a stock rebounds, and shows 
 
 - **Rebound board:** each stock's best call for a rebound you choose (+20% / +30% / +50% / back to the all-time high, within 1–6 months), ranked by what it pays if the stock only gets halfway there. Tick up to 2 to plan a play with a budget, compared with buying the same stocks.
 - **Explorer:** any tracked ticker, every expiration and strike, Greeks (delta, gamma, theta, vega), a what-if table and payoff chart with sliders for time and implied volatility, and the time-decay curve.
+- **Portfolio:** the efficient frontier for your holdings plus the watchlist (`portfolio/holdings.json`, caps by volatility tier), the optimized mix vs yours and the S&P 500, and a core + satellite plan that pairs the core with the Board's best calls.
 - **Market:** VIX, S&P 500 distance from its high, market and per-stock put/call ratios.
 
 ## How it works

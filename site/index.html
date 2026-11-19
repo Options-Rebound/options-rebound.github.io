@@ -32,6 +32,7 @@
     <nav class="tabs">
       <a href="#/board" data-tab="board">Board</a>
       <a href="#/explore" data-tab="explore">Explorer</a>
+      <a href="#/portfolio" data-tab="portfolio">Portfolio</a>
       <a href="#/market" data-tab="market">Market</a>
     </nav>
     <span class="updated"><span class="dot" id="dot"></span><span id="updated"></span></span>
@@ -87,6 +88,19 @@
       <button id="go" class="btn">Open</button>
     </div>
     <div id="exploreBody"></div>
+  </section>
+
+  <!-- ======================= PORTFOLIO ======================= -->
+  <section id="portfolio" class="view" hidden>
+    <div class="tiles t3" id="pfTiles"></div>
+    <div class="card" id="plan"></div>
+    <div class="grid2">
+      <div class="card"><div class="card__head"><h2>Efficient frontier</h2><span class="muted small">Each dot is a possible mix · the gold curve is the best return for each level of risk</span></div><div class="chart tall"><canvas id="frontierChart"></canvas></div></div>
+      <div class="card"><div class="card__head"><h2>$10,000 over the last 2 years</h2><span class="muted small">Today's weights applied to the past (flatters the optimized mix)</span></div><div class="chart tall"><canvas id="growthChart"></canvas></div></div>
+    </div>
+    <div class="card"><div class="card__head"><h2>What the optimizer would change</h2><span class="muted small">Biggest moves from your mix to the optimized one · caps: 5% very volatile, 8% volatile, 12% steady names</span></div>
+      <div class="tablewrap"><table id="shiftTable"></table></div></div>
+    <p class="note" id="pfNote"></p>
   </section>
 
   <!-- ======================= MARKET ======================= -->

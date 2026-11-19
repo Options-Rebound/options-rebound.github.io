@@ -40,6 +40,9 @@ jobs:
         env:
           SITE_URL: https://options-rebound.github.io
         run: python scanner/scan.py
+      - name: Optimize the portfolio (efficient frontier)
+        run: python scanner/portfolio.py
+        continue-on-error: true          # the options site still publishes if this step has a bad day
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
