@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Options Rebound</title>
+<meta name="description" content="Find beaten-down call options that pay the most if a stock rebounds, and see what you lose if it doesn't.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23116a5c'/%3E%3Cpath d='M6 22l6-7 5 4 9-10' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="wrap top__in">
+    <a class="brand" href="#/board"><span class="logo"></span>Options Rebound</a>
+    <nav class="tabs">
+      <a href="#/board" data-tab="board">Rebound board</a>
+      <a href="#/explore" data-tab="explore">Explorer</a>
+      <a href="#/market" data-tab="market">Market</a>
+    </nav>
+    <span class="updated" id="updated"></span>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- ======================= BOARD ======================= -->
+  <section id="board" class="view">
+    <div class="pulse" id="pulse"></div>
+
+    <div class="card controls">
+      <div class="ctl">
+        <label>If the stock rebounds</label>
+        <div class="seg" id="target">
+          <button data-v="0.2">+20%</button><button data-v="0.3" class="on">+30%</button><button data-v="0.5">+50%</button><button data-v="ath">Back to ATH</button>
+        </div>
+      </div>
+      <div class="ctl">
+        <label>within</label>
+        <div class="seg" id="horizon">
+          <button data-v="30">1 mo</button><button data-v="60" class="on">2 mo</button><button data-v="90">3 mo</button><button data-v="180">6 mo</button>
+        </div>
+      </div>
+      <div class="ctl">
+        <label>Max per contract</label>
+        <div class="seg" id="budget">
+          <button data-v="300">$300</button><button data-v="600">$600</button><button data-v="1000" class="on">$1,000</button><button data-v="2500">$2,500</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card__head">
+        <h2>Best call per stock</h2>
+        <span class="muted small">Ranked by what it pays if the stock gets only <b>halfway</b> there, so long shots don't win. Tick up to 2 to plan a play.</span>
+      </div>
+      <div class="tablewrap"><table class="board" id="boardTable"></table></div>
+    </div>
+
+    <div class="card play" id="play"></div>
+    <p class="note">Model estimates (Black-Scholes with each option's own implied volatility, easing up to 10% on a rally and rising up to 20% on a selloff). Prices are about 15–30 minutes delayed. Not investment advice.</p>
+  </section>
+
+  <!-- ======================= EXPLORER ======================= -->
+  <section id="explore" class="view" hidden>
+    <div class="card search">
+      <input id="tickerInput" list="tickerList" placeholder="Type a ticker (e.g. NVDA)" autocomplete="off" spellcheck="false">
+      <datalist id="tickerList"></datalist>
+      <button id="go" class="btn">Open</button>
+    </div>
+    <div id="exploreBody"></div>
+  </section>
+
+  <!-- ======================= MARKET ======================= -->
+  <section id="market" class="view" hidden>
+    <div class="grid3" id="marketStats"></div>
+    <div class="card"><div class="card__head"><h2>VIX (fear index), last 12 months</h2></div><div class="chart"><canvas id="vixChart"></canvas></div></div>
+    <div class="card"><div class="card__head"><h2>Put/call ratio by stock</h2><span class="muted small">Above 1: more puts than calls traded (fear or hedging). Below 0.7: calls dominate (optimism).</span></div>
+      <div class="tablewrap"><table id="pcTable"></table></div></div>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
