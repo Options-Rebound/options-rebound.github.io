@@ -1,6 +1,8 @@
 # Scan the watchlist and publish the site to GitHub Pages.
 # Runs every 15 minutes while the US market is open (times are UTC; covers both EST and EDT),
 # once after the close, whenever the watchlist or the code changes, and on demand (Actions → Run workflow).
+# Security: actions are pinned to exact commits (tags can be moved by an attacker), packages to exact versions,
+# and the token can only read the repo and publish Pages. Dependabot proposes updates to the pins.
 name: Update data and site
 
 on:
@@ -29,23 +31,26 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          persist-credentials: false   # the job never pushes; don't leave a token on disk
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0   # v7.1.0
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: scanner/requirements.txt
-      - run: pip install -r scanner/requirements.txt
-      - name: Scan the watchlist
+      - run: pip install --only-binary=:all: -r scanner/requirements.txt   # prebuilt wheels only: no install scripts run
+      - name: Scan the watchlist and optimize the portfolio (side by side)
         env:
           SITE_URL: https://options-rebound.github.io
-        run: python scanner/scan.py
-      - name: Optimize the portfolio (efficient frontier)
-        run: python scanner/portfolio.py
-        continue-on-error: true          # the options site still publishes if this step has a bad day
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+        run: |
+          # the optimizer runs in the background; if it has a bad day the options site still publishes
+          (python scanner/portfolio.py || echo "::warning::portfolio optimizer failed; keeping the site up without it") &
+          python scanner/scan.py
+          wait
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d   # v6.0.0
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9   # v5.0.0
         with:
           path: site
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346   # v5.0.1

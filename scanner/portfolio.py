@@ -45,6 +45,14 @@ def solve(fun, n, bounds, cons, x0):
     return x / x.sum()
 
 
+def frontier_point(args):
+    """One point of the efficient frontier: least volatility for a target return (runs in its own process)."""
+    target, mu, cov, bounds, x0 = args
+    cons = [{"type": "eq", "fun": lambda w: w.sum() - 1}, {"type": "eq", "fun": lambda w: w @ mu - target}]
+    w = solve(lambda w: w @ cov @ w, len(mu), bounds, cons, x0)
+    return [round(float(np.sqrt(w @ cov @ w)), 4), round(float(w @ mu), 4)]
+
+
 def stats(w, mu, cov, rf):
     ret, vol = float(w @ mu), float(np.sqrt(w @ cov @ w))
     return {"ret": round(ret, 4), "vol": round(vol, 4), "sharpe": round((ret - rf) / vol, 3) if vol else None}
@@ -102,11 +110,10 @@ def main(out):
         if left <= 1e-9:
             break
     r_lo, r_hi = float(min_vol @ mu), float(w_hi @ mu)
-    frontier = []
-    for target in np.linspace(r_lo, r_hi, 22):
-        w = solve(lambda w: w @ cov @ w, n, bounds, [full, {"type": "eq", "fun": lambda w, t=target: w @ mu - t}], min_vol)
-        s = stats(w, mu, cov, rf)
-        frontier.append([s["vol"], s["ret"]])
+    # 22 small solves of a few milliseconds each: one process is fastest here (tested: a process pool
+    # doubled the run time, because start-up and data copying cost more than the math, and numpy
+    # already uses several cores inside each solve)
+    frontier = [frontier_point((t, mu, cov, bounds, min_vol)) for t in np.linspace(r_lo, r_hi, 22)]
 
     rng = np.random.default_rng(7)                    # cloud of random portfolios for context
     cloud = []

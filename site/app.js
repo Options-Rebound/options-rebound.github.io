@@ -153,6 +153,9 @@ function renderOpp(rows) {
   });
 }
 
+const options = (vals, cur, f) => vals.map((v) => `<option value="${v}" ${v === cur ? "selected" : ""}>${f(v)}</option>`).join("");
+const budgetSelect = (cur) => `<select id="planBudget" aria-label="Budget">${options([250, 500, 1000, 1500, 2500, 5000, 10000], cur, (v) => fmt$(v))}</select>`;
+
 function renderPlay() {
   const el = $("#play");
   let picks = state.picks;
@@ -168,7 +171,7 @@ function renderPlay() {
   }
   if (!picks.length) {
     el.innerHTML = `<div class="card__head"><h2>Your play</h2></div><p class="muted">No call on the board fits ${fmt$(budget)}. Pick a bigger budget below or a lower "max per contract" above.</p>
-      <div class="seg" id="planBudget">${[500, 1000, 2500, 5000].map((v) => `<button data-v="${v}" class="${v === budget ? "on" : ""}">${fmt$(v)}</button>`).join("")}</div>`;
+      ${budgetSelect(budget)}`;
     return;
   }
   // add contracts one at a time across the picks until the budget runs out
@@ -191,8 +194,7 @@ function renderPlay() {
   }).join("");
   const fullO = optVal("full") - spent, fullS = stockVal("full") - spent, flatO = optVal("flat") - spent;
   el.innerHTML = `<div class="card__head"><h2>Your play ${auto ? '<span class="muted small">(top 2 suggested; tick rows above to choose)</span>' : ""}</h2>
-      <span class="ctl" style="margin-left:auto"><label>Budget</label><div class="seg" id="planBudget">
-      ${[500, 1000, 2500, 5000].map((v) => `<button data-v="${v}" class="${v === budget ? "on" : ""}">${fmt$(v)}</button>`).join("")}</div></span></div>
+      <span class="ctl" style="margin-left:auto"><label>Budget</label>${budgetSelect(budget)}</span></div>
     <div>
       ${legs.map(({ b, n }) => `<p><b>${n}×</b> ${b.s.ticker} $${b.K} call, ${b.exp} <span class="muted">(${fmt$(b.cost * 100)} each = ${fmt$(n * b.cost * 100)})</span>${n === 0 ? ' <span class="down">· doesn\'t fit what\'s left of the budget</span>' : ""}</p>`).join("")}
       <p class="muted small">Total in options: ${fmt$(spent)} of ${fmt$(budget)}${left >= 1 ? ` (${fmt$(left)} left over)` : ""}. "Same $ in stock" puts the same ${fmt$(spent)} into the shares.</p>
@@ -301,7 +303,8 @@ const ex = { t: null, data: null, exp: null, type: "call", K: null, horizon: nul
 
 async function openTicker(t) {
   t = (t || "").trim().toUpperCase();
-  $("#tickerInput").value = t;
+  if ($("#tickerSelect").querySelector(`option[value="${CSS.escape(t)}"]`)) { $("#tickerSelect").value = t; $("#tickerInput").value = ""; }
+  else $("#tickerInput").value = t;
   const body = $("#exploreBody");
   if (!t) { body.innerHTML = `<div class="card empty">Type a ticker above, or open one from the board.</div>`; return; }
   const known = state.index.stocks.some((s) => s.ticker === t);
@@ -501,8 +504,8 @@ function renderPortfolio() {
   const segB = (id, vals, cur, f) => `<div class="seg" id="${id}">${vals.map((v) => `<button data-v="${v}" class="${v === cur ? "on" : ""}">${f(v)}</button>`).join("")}</div>`;
   $("#plan").innerHTML = `<div class="card__head"><h2>Core + satellite plan</h2><span class="muted small">A diversified core plus 1–2 rebound calls from the Board, over ${h} days (set on the Board)</span></div>
     <div class="controls" style="margin-bottom:14px">
-      <div class="ctl"><label>Total capital</label>${segB("pfCap", [5000, 10000, 25000, 50000], capital, (v) => fmt$(v))}</div>
-      <div class="ctl"><label>In options (satellite)</label>${segB("pfSat", [0, 0.05, 0.1, 0.2], pfState.sat, (v) => pctPlain(v))}</div>
+      <div class="ctl"><label>Total capital</label><select id="pfCap">${options([1000, 2500, 5000, 10000, 25000, 50000, 100000], capital, (v) => fmt$(v))}</select></div>
+      <div class="ctl"><label>In options (satellite)</label><select id="pfSat">${options([0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3], pfState.sat, (v) => pctPlain(v))}</select></div>
       <div class="ctl"><label>Core</label>${segB("pfCore", ["optimized", "current"], pfState.core, (v) => (v === "optimized" ? "Optimized" : "My current mix"))}</div>
     </div>
     <div class="grid2"><div>
@@ -511,8 +514,9 @@ function renderPortfolio() {
       ${pfState.sat > 0 && !legs.length ? `<p class="down small">No board call fits ${fmt$(satCash)}; raise the capital or the satellite share.</p>` : ""}
       <p class="muted small">Stocks are assumed to move by their beta times the market; options are repriced with each one's own volatility. Tick calls on the Board to choose the satellite yourself.</p>
     </div><div class="tablewrap"><table><thead><tr><th class="l">If the market moves</th><th>Core</th><th>Satellite</th><th>Total</th><th>Return</th><th>All in S&P 500</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
-  [["pfCap", "capital"], ["pfSat", "sat"], ["pfCore", "core"]].forEach(([id, key]) =>
-    $$(`#${id} button`).forEach((b) => (b.onclick = () => { pfState[key] = key === "core" ? b.dataset.v : +b.dataset.v; renderPortfolio(); })));
+  $("#pfCap").onchange = (e) => { pfState.capital = +e.target.value; renderPortfolio(); };
+  $("#pfSat").onchange = (e) => { pfState.sat = +e.target.value; renderPortfolio(); };
+  $$("#pfCore button").forEach((b) => (b.onclick = () => { pfState.core = b.dataset.v; renderPortfolio(); }));
 
   // ----- efficient frontier
   const pt = (x, label, color, style = "circle", r = 7) => ({ label, data: [{ x: +(x.stats.vol * 100).toFixed(1), y: +(x.stats.ret * 100).toFixed(1) }],
@@ -578,9 +582,14 @@ async function init() {
   $("#dot").classList.toggle("stale", mins > 45);
   applyTheme();
   setInterval(applyTheme, 5 * 60 * 1000);
-  $("#tickerList").innerHTML = state.index.stocks.map((s) => `<option value="${s.ticker}">${esc(s.name)}</option>`).join("");
+  $("#tickerSelect").innerHTML = `<option value="">Choose a stock…</option>` +
+    [...state.index.stocks].sort((a, b) => a.ticker.localeCompare(b.ticker)).map((s) => `<option value="${s.ticker}">${s.ticker} · ${esc(s.name)}</option>`).join("");
   renderPulse();
-  seg("target", "target", renderBoard); seg("horizon", "horizon", renderBoard); seg("budget", "budget", renderBoard);
+  seg("target", "target", renderBoard); seg("horizon", "horizon", renderBoard);
+  $("#budget").onchange = (e) => { state.budget = +e.target.value; renderBoard(); };
+  $("#paletteTab").onclick = () => $("#palette").classList.toggle("open");
+  document.addEventListener("change", (e) => { if (e.target.id === "planBudget") { state.planBudget = +e.target.value; renderPlay(); } });
+  $("#tickerSelect").onchange = (e) => { if (e.target.value) location.hash = `#/explore/${e.target.value}`; };
   document.addEventListener("click", (e) => {
     const pick = e.target.closest("[data-pick]");
     if (pick) {
@@ -590,14 +599,12 @@ async function init() {
       $$("[data-pick]").forEach((c) => (c.checked = state.picks.some((p) => p.s.ticker === c.dataset.pick)));
       renderPlay(); return;
     }
-    const pb = e.target.closest("#planBudget button");
-    if (pb) { state.planBudget = +pb.dataset.v; renderPlay(); return; }
     const sw = e.target.closest(".sw");
     if (sw) { try { localStorage.setItem("theme", sw.dataset.theme); } catch (err) {} applyTheme(); return; }
     const row = e.target.closest("tr.click, .pick[data-t]");
     if (row && !e.target.closest("input")) location.hash = `#/explore/${row.dataset.t}`;
   });
-  $("#go").onclick = () => (location.hash = `#/explore/${$("#tickerInput").value.trim().toUpperCase()}`);
+  $("#go").onclick = () => (location.hash = `#/explore/${($("#tickerInput").value.trim() || $("#tickerSelect").value).toUpperCase()}`);
   $("#tickerInput").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#go").click(); });
   window.addEventListener("hashchange", route);
   await renderBoard();

@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-R+65ETmv8OpDntlcehxSsyQkPYBJY9h+LOYD00PD8Wg='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; upgrade-insecure-requests">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Options Rebound</title>
 <meta name="description" content="Find beaten-down call options that pay the most if a stock rebounds, and see what you lose if it doesn't.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23e2b858'/%3E%3Cstop offset='1' stop-color='%238a929c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Cpath d='M7 21l6-7 5 4 8-9' stroke='%23111' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
+<link rel="preload" href="fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
 <script>
   // theme before first paint: saved choice, else by time of day (morning silver, afternoon graphite, evening onyx)
   (function () {
@@ -18,10 +18,11 @@
     var h = new Date().getHours();
     var auto = h >= 6 && h < 12 ? "silver" : h >= 12 && h < 18 ? "graphite" : "onyx";
     document.documentElement.dataset.theme = t && t !== "auto" ? t : auto;
+    if (window.top !== window.self) window.top.location = window.self.location;   // never run inside someone else's frame
   })();
 </script>
 <link rel="stylesheet" href="style.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="vendor/chart.umd.min.js" integrity="sha512-CQBWl4fJHWbryGE+Pc7UAxWMUMNMWzWxF4SQo9CgkJIN1kx6djDQZjh3Y8SZ1d+6I+1zze6Z7kHXO7q3UyZAWw=="></script>
 </head>
 <body>
 <div class="bg" aria-hidden="true"></div>
@@ -40,7 +41,7 @@
 </header>
 
 <aside class="palette" id="palette" aria-label="Color theme">
-  <button class="palette__tab" aria-label="Show color themes" onclick="this.parentElement.classList.toggle('open')"></button>
+  <button class="palette__tab" id="paletteTab" aria-label="Show color themes" aria-controls="palette"></button>
   <div class="palette__panel">
     <b>Theme</b>
     <button class="sw" data-theme="auto"><i style="background:conic-gradient(#e9ebee 0 33%,#2f3237 0 66%,#0b0b0c 0)"></i><span>Auto<small>by time of day</small></span></button>
@@ -61,7 +62,10 @@
       <div class="ctl"><label>within</label>
         <div class="seg" id="horizon"><button data-v="30">1 mo</button><button data-v="60" class="on">2 mo</button><button data-v="90">3 mo</button><button data-v="180">6 mo</button></div></div>
       <div class="ctl"><label>Max per contract</label>
-        <div class="seg" id="budget"><button data-v="300">$300</button><button data-v="600">$600</button><button data-v="1000" class="on">$1,000</button><button data-v="2500">$2,500</button></div></div>
+        <select id="budget" aria-label="Max per contract">
+          <option value="200">$200</option><option value="300">$300</option><option value="500">$500</option><option value="600">$600</option>
+          <option value="1000" selected>$1,000</option><option value="1500">$1,500</option><option value="2500">$2,500</option><option value="5000">$5,000</option>
+        </select></div>
     </div>
 
     <div class="tiles t3" id="picks"></div>
@@ -83,8 +87,8 @@
   <!-- ======================= EXPLORER ======================= -->
   <section id="explore" class="view" hidden>
     <div class="card search">
-      <input id="tickerInput" list="tickerList" placeholder="Type a ticker (e.g. NVDA)" autocomplete="off" spellcheck="false">
-      <datalist id="tickerList"></datalist>
+      <select id="tickerSelect" aria-label="Tracked stocks"></select>
+      <input id="tickerInput" placeholder="Other ticker…" autocomplete="off" spellcheck="false" maxlength="10" aria-label="Another ticker">
       <button id="go" class="btn">Open</button>
     </div>
     <div id="exploreBody"></div>

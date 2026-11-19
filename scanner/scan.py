@@ -26,8 +26,8 @@ import numpy as np
 import yfinance as yf
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TICKER_WORKERS = 6        # stocks fetched at once
-CHAIN_WORKERS = 4         # expirations fetched at once per stock (6 x 4 = 24 requests in flight at most)
+TICKER_WORKERS = int(os.environ.get("TICKER_WORKERS", 6))   # stocks fetched at once
+CHAIN_WORKERS = int(os.environ.get("CHAIN_WORKERS", 4))     # expirations fetched at once per stock
 RETRIES = 3
 
 
@@ -106,7 +106,7 @@ def scan_ticker(ticker, spy_closes):
     step = max(1, len(two) // 260)
     chart = [[d.strftime("%Y-%m-%d"), r(v)] for d, v in list(two.items())[::step]]
 
-    exps = list(retry(lambda: t.options))
+    exps = [e for e in retry(lambda: t.options) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(e))]   # only real dates reach the site
     if not exps:
         raise LookupError("has no listed options")
     lo, hi = price * 0.3, max(price * 2.2, ath * 1.25)
@@ -135,7 +135,7 @@ def scan_ticker(ticker, spy_closes):
                 atm_iv = sum(ivs) / len(ivs)
                 break
     try:
-        name = t.info.get("shortName") or ticker
+        name = str(t.info.get("shortName") or ticker)[:80]
     except Exception:
         name = ticker
     summary = {
@@ -149,20 +149,22 @@ def scan_ticker(ticker, spy_closes):
     return summary, detail
 
 
-def market(prev_history):
+def market(prev_history, spy_max):
     vix = closes("^VIX", "1y")
-    spy_max = closes("SPY", "max")
     spy = float(spy_max.iloc[-1])
-    # market put/call proxy: SPY + QQQ option volume and open interest, expirations within 60 days
-    pv = cv = po = co = 0
+    # market put/call proxy: SPY + QQQ option volume and open interest, expirations within 60 days (fetched in parallel)
+    jobs = []
     for sym in ("SPY", "QQQ"):
         t = yf.Ticker(sym)
-        for exp in retry(lambda: t.options):
-            if (date.fromisoformat(exp) - date.today()).days > 60:
-                break
-            ch = retry(t.option_chain, exp)
-            pv += int(ch.puts["volume"].fillna(0).sum()); cv += int(ch.calls["volume"].fillna(0).sum())
-            po += int(ch.puts["openInterest"].fillna(0).sum()); co += int(ch.calls["openInterest"].fillna(0).sum())
+        jobs += [(t, e) for e in retry(lambda: t.options) if (date.fromisoformat(e) - date.today()).days <= 60]
+
+    def sums(job):
+        ch = retry(job[0].option_chain, job[1])
+        return (int(ch.puts["volume"].fillna(0).sum()), int(ch.calls["volume"].fillna(0).sum()),
+                int(ch.puts["openInterest"].fillna(0).sum()), int(ch.calls["openInterest"].fillna(0).sum()))
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        totals = list(pool.map(sums, jobs))
+    pv, cv, po, co = (sum(x[i] for x in totals) for i in range(4))
     today = date.today().isoformat()
     pc = r(pv / cv, 2) if cv else None
     hist = [h for h in prev_history if h.get("date") != today][-400:]
@@ -171,7 +173,7 @@ def market(prev_history):
         "vix": r(float(vix.iloc[-1])), "vix_chart": [[d.strftime("%Y-%m-%d"), r(v)] for d, v in vix.items()],
         "spy": r(spy), "spy_ath": r(float(spy_max.max())), "spy_below_ath": r(spy / float(spy_max.max()) - 1, 4),
         "pc_volume": pc, "pc_oi": r(po / co, 2) if co else None, "history": hist,
-    }, spy_max
+    }
 
 
 def previous_history(url):
@@ -197,7 +199,7 @@ def main():
     os.makedirs(os.path.join(a.out, "chains"), exist_ok=True)
     t0 = time.time()
 
-    mkt, spy_closes = market(previous_history(a.site_url))
+    spy_closes = closes("SPY", "max")                       # needed first: every stock's beta uses it
     summaries = []
     failed = [{"ticker": n, "error": "isn't a valid ticker symbol"} for n in bad_names]
 
@@ -209,7 +211,8 @@ def main():
         except Exception as e:                            # network trouble: say so, try again next run
             return tk, None, "couldn't be downloaded this time (" + type(e).__name__ + "); it will retry next update"
 
-    with ThreadPoolExecutor(max_workers=TICKER_WORKERS) as pool:
+    with ThreadPoolExecutor(max_workers=TICKER_WORKERS + 1) as pool:
+        mkt_future = pool.submit(market, previous_history(a.site_url), spy_closes)   # market data alongside the stocks
         for tk, res, err in pool.map(job, tickers):
             if err:
                 failed.append({"ticker": tk, "error": err})
@@ -221,6 +224,7 @@ def main():
                 json.dump(detail, f, separators=(",", ":"))
             print(f"  {tk:6} {summary['below_ath']:+.0%} vs ATH  {summary['expirations']:3} expirations  {summary['contracts']:5} contracts")
 
+        mkt = mkt_future.result()
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with open(os.path.join(a.out, "index.json"), "w") as f:
         json.dump({"updated": stamp, "stocks": sorted(summaries, key=lambda s: s["below_ath"]), "failed": failed,

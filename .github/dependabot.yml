@@ -1,0 +1,9 @@
+# Weekly pull requests to update the pinned GitHub Actions and Python packages.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+  - package-ecosystem: pip
+    directory: /scanner
+    schedule: { interval: weekly }
