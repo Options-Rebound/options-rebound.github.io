@@ -226,12 +226,52 @@ function renderPlay() {
 
 // ---------------------------------------------------------------- market
 function vixWord(v) { return v < 15 ? "Calm" : v < 20 ? "Normal" : v < 30 ? "Elevated fear" : "High fear"; }
+function moodWord(x) { return x < 25 ? "Extreme fear" : x < 45 ? "Fear" : x < 56 ? "Neutral" : x < 76 ? "Greed" : "Extreme greed"; }
+const moodCls = (x) => (x < 45 ? "down" : x >= 56 ? "up" : "");
+function gauge(score) {                                 // half-dial, 0 = extreme fear (left) … 100 = extreme greed (right)
+  const P = (v, R) => { const a = Math.PI * (1 - v / 100); return [(110 + R * Math.cos(a)).toFixed(1), (110 - R * Math.sin(a)).toFixed(1)]; };
+  const bands = [[0, 25, "var(--bad)"], [25, 45, "color-mix(in srgb, var(--bad) 45%, var(--silver))"], [45, 56, "var(--silver)"],
+    [56, 76, "color-mix(in srgb, var(--good) 45%, var(--silver))"], [76, 100, "var(--good)"]];
+  const arcs = bands.map(([a, b, c]) => { const [x1, y1] = P(a + 0.6, 84), [x2, y2] = P(b - 0.6, 84);
+    return `<path d="M${x1} ${y1} A84 84 0 0 1 ${x2} ${y2}" stroke="${c}" stroke-width="20" fill="none" opacity=".9"/>`; }).join("");
+  const ticks = [0, 25, 50, 75, 100].map((v) => { const [x, y] = P(v, 58); return `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle">${v}</text>`; }).join("");
+  const [nx, ny] = P(Math.max(0, Math.min(100, score)), 74);
+  return `<svg class="gauge" viewBox="0 0 220 124" role="img" aria-label="Market mood ${score} of 100, ${moodWord(score)}">${arcs}${ticks}
+    <line x1="110" y1="110" x2="${nx}" y2="${ny}" stroke="var(--ink)" stroke-width="4" stroke-linecap="round"/><circle cx="110" cy="110" r="7" fill="var(--ink)"/></svg>`;
+}
+function renderMood() {
+  const md = state.market.mood, el = $("#moodCard");
+  if (!md) { el.hidden = true; return; }
+  el.hidden = false;
+  const ago = [["Previous close", md.ago.prev], ["1 week ago", md.ago.week], ["1 month ago", md.ago.month], ["1 year ago", md.ago.year]]
+    .filter(([, v]) => v != null)
+    .map(([k, v]) => `<li><span class="muted small">${k}</span><b>${moodWord(v)}</b><span class="pill ${moodCls(v)}">${v}</span></li>`).join("");
+  const parts = md.parts.map((p) => `<li><div><b>${esc(p.name)}</b> <span class="muted small">${esc(p.detail)}</span></div>
+      <div class="bar"><i style="width:${p.score ?? 0}%"></i></div><span class="pill ${moodCls(p.score)}">${p.score ?? "—"}</span></li>`).join("");
+  el.innerHTML = `<div class="card__head"><h2>Market mood</h2><span class="muted small">Our own fear/greed gauge from 5 signals, each ranked against its past year. Similar in spirit to CNN's Fear &amp; Greed Index, not the same numbers.</span></div>
+    <div class="mood__grid">
+      <div class="mood__dial">${gauge(md.score)}<div class="mood__score">${md.score}</div><div class="mood__word ${moodCls(md.score)}">${md.label}</div></div>
+      <ul class="mood__ago">${ago}</ul>
+      <ul class="mood__parts">${parts}</ul>
+    </div>
+    <div class="chart short"><canvas id="moodChart"></canvas></div>`;
+  const c = colors(), lab = md.chart.map((p) => p[0]);
+  lineChart("moodChart", lab, [
+    { label: "Market mood", data: md.chart.map((p) => p[1]), borderColor: c.accent, backgroundColor: area(c.accent), fill: true, pointRadius: 0, borderWidth: 2, tension: 0.25 },
+    { label: "25 · extreme fear", data: lab.map(() => 25), borderColor: c.bad, borderDash: [5, 4], pointRadius: 0, borderWidth: 1 },
+    { label: "75 · extreme greed", data: lab.map(() => 75), borderColor: c.good, borderDash: [5, 4], pointRadius: 0, borderWidth: 1 }],
+    { y: { min: 0, max: 100 } });
+}
 function pcWord(v) { return v == null ? "" : v > 1.0 ? "Fearful (puts > calls)" : v < 0.7 ? "Optimistic (calls dominate)" : "Neutral"; }
 
 const tile = (k, v, s, c = "") => `<div class="tile accent"><span class="k">${k}</span><span class="v ${c}">${v}</span><span class="s">${s}</span></div>`;
 function renderPulse() {
   const m = state.market;
-  $("#pulse").innerHTML = tile("Fear index (VIX)", m.vix, vixWord(m.vix)) +
+  const md = m.mood;
+  $("#pulse").className = "tiles " + (md ? "t4" : "t3");
+  $("#pulse").innerHTML = (md ? tile("Market mood", `${md.score} <span class="muted" style="font-size:14px">/ 100</span>`,
+      `<a href="#/market">${md.label}</a> · 1 week ago ${md.ago.week ?? "—"}`, moodCls(md.score)) : "") +
+    tile("Fear index (VIX)", m.vix, vixWord(m.vix)) +
     tile("S&P 500 vs its high", pct(m.spy_below_ath, 1), `$${m.spy} · high $${m.spy_ath}`, cls(m.spy_below_ath)) +
     tile("Market put/call", ratio(m.pc_volume), pcWord(m.pc_volume) + " · SPY + QQQ");
 }
@@ -285,7 +325,9 @@ function spark(points, ath, w = 86, h = 26) {          // tiny 1-year price line
 }
 function renderMarket() {
   const m = state.market, c = colors();
+  $("#marketStats").className = $("#pulse").className;
   $("#marketStats").innerHTML = $("#pulse").innerHTML;
+  renderMood();
   const lab = m.vix_chart.map((p) => p[0]);
   lineChart("vixChart", lab, [
     { label: "VIX", data: m.vix_chart.map((p) => p[1]), borderColor: c.accent, backgroundColor: area(c.accent), fill: true, pointRadius: 0, borderWidth: 2, tension: 0.25 },

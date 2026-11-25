@@ -6,7 +6,8 @@
 For every ticker in watchlist/ (one file per ticker), it saves:
   data/chains/<T>.json   every expiration's calls and puts (strike, bid, ask, last, IV, open interest, volume)
   data/index.json        one summary line per stock (price, all-time high, beta, volatility, put/call ratios)
-  data/market.json       VIX, S&P 500 distance from its high, market put/call ratio (+ a short history)
+  data/market.json       VIX, S&P 500 distance from its high, market put/call ratio (+ a short history),
+                         and the 0-100 "market mood" gauge (see mood())
 
 Greeks and scenarios are computed in the browser from this data.
 Network work is done in parallel threads (it is all waiting on Yahoo, not CPU).
@@ -150,7 +151,8 @@ def scan_ticker(ticker, spy_closes):
 
 
 def market(prev_history, spy_max):
-    vix = closes("^VIX", "1y")
+    vix2 = closes("^VIX", "3y")          # 3 years: a full year of gauge readings, each ranked against the year before it
+    vix = vix2.iloc[-252:]
     spy = float(spy_max.iloc[-1])
     # market put/call proxy: SPY + QQQ option volume and open interest, expirations within 60 days (fetched in parallel)
     jobs = []
@@ -169,10 +171,85 @@ def market(prev_history, spy_max):
     pc = r(pv / cv, 2) if cv else None
     hist = [h for h in prev_history if h.get("date") != today][-400:]
     hist.append({"date": today, "vix": r(float(vix.iloc[-1])), "pc": pc, "spy_below_ath": r(spy / float(spy_max.max()) - 1, 4)})
+    try:
+        md = mood(spy_max, vix2, pc, {h["date"]: h.get("pc") for h in hist})
+    except Exception as e:                                   # the gauge is a bonus: never let it take the site down
+        print("  mood gauge skipped:", type(e).__name__, e, file=sys.stderr)
+        md = None
+    if md:
+        hist[-1]["mood"] = md["score"]
     return {
+        "mood": md,
         "vix": r(float(vix.iloc[-1])), "vix_chart": [[d.strftime("%Y-%m-%d"), r(v)] for d, v in vix.items()],
         "spy": r(spy), "spy_ath": r(float(spy_max.max())), "spy_below_ath": r(spy / float(spy_max.max()) - 1, 4),
         "pc_volume": pc, "pc_oi": r(po / co, 2) if co else None, "history": hist,
+    }
+
+
+MOOD_BANDS = ((25, "Extreme fear"), (45, "Fear"), (56, "Neutral"), (76, "Greed"), (101, "Extreme greed"))
+
+
+def mood_word(x):
+    return next(w for lim, w in MOOD_BANDS if x < lim)
+
+
+def by_day(series):
+    """Daily closes keyed by calendar date (Yahoo stamps indexes and ETFs in different time zones)."""
+    s = series.copy()
+    s.index = [d.strftime("%Y-%m-%d") for d in s.index]
+    return s[~s.index.duplicated(keep="last")]
+
+
+def pc_score(pc):
+    """SPY+QQQ put/call → 0-100: 1.0 is neutral (index options carry many hedging puts), each 0.1 above is 10 points of fear."""
+    return None if pc is None else max(0.0, min(100.0, 50 - (pc - 1.0) * 100))
+
+
+def mood(spy_max, vix, pc_today, pc_by_day):
+    """Our own fear/greed gauge in the spirit of CNN's (not CNN's numbers). Each signal is ranked against its own
+    past year (0 = most fearful reading of the year, 100 = most greedy), and the gauge is their average:
+      momentum     SPY vs its 125-day average
+      volatility   VIX vs its 50-day average (higher = fear)
+      safe haven   20-day return of stocks (SPY) minus long Treasuries (TLT)
+      junk bonds   20-day return of high-yield bonds (HYG) minus Treasuries (IEF)
+      put/call     today's SPY+QQQ put/call ratio (fixed scale; we only have a short history of it)"""
+    import pandas as pd
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        tlt, hyg, ief = pool.map(lambda t: by_day(closes(t, "3y")), ("TLT", "HYG", "IEF"))
+    spy, vx = by_day(spy_max.iloc[-800:]), by_day(vix)
+    df = pd.concat({"spy": spy, "vix": vx, "tlt": tlt, "hyg": hyg, "ief": ief}, axis=1).sort_index().ffill().dropna()
+    raw = pd.DataFrame({
+        "momentum": df.spy / df.spy.rolling(125).mean() - 1,
+        "volatility": df.vix / df.vix.rolling(50).mean() - 1,
+        "safe_haven": df.spy.pct_change(20) - df.tlt.pct_change(20),
+        "junk": df.hyg.pct_change(20) - df.ief.pct_change(20),
+    })
+    rank = lambda w: ((w[:-1] < w[-1]).mean() + 0.5 * (w[:-1] == w[-1]).mean()) * 100   # where today sits in the past year
+    scores = raw.rolling(253, min_periods=200).apply(rank, raw=True)
+    scores["volatility"] = 100 - scores["volatility"]                                    # a jumpy VIX means fear
+    scores["put_call"] = [pc_score(pc_by_day.get(d)) for d in scores.index]
+    if pc_today is not None:
+        scores.iloc[-1, scores.columns.get_loc("put_call")] = pc_score(pc_today)
+    total = scores.mean(axis=1, skipna=True)
+    total = total[scores[["momentum", "volatility", "safe_haven", "junk"]].notna().all(axis=1)].iloc[-260:]
+    if total.empty:
+        return None
+    last, now = raw.iloc[-1], scores.iloc[-1]
+    parts = [
+        ("Market momentum", "momentum", f"S&P 500 (SPY) {abs(last.momentum):.1%} {'above' if last.momentum >= 0 else 'below'} its 125-day average"),
+        ("Volatility", "volatility", f"VIX {abs(last.volatility):.0%} {'above' if last.volatility >= 0 else 'below'} its 50-day average"),
+        ("Safe-haven demand", "safe_haven", f"stocks {last.safe_haven:+.1%} vs long Treasuries over 20 days"),
+        ("Junk-bond demand", "junk", f"high-yield bonds {last.junk:+.1%} vs Treasuries over 20 days"),
+        ("Put/call", "put_call", f"{pc_today:.2f} on SPY + QQQ options" if pc_today is not None else "not available"),
+    ]
+    ago = lambda n: r(float(total.iloc[-1 - n]), 0) if len(total) > n else None
+    score = float(total.iloc[-1])
+    return {
+        "score": r(score, 0), "label": mood_word(score),
+        "parts": [{"name": n, "score": r(now[k], 0), "label": mood_word(now[k]) if now[k] == now[k] else None, "detail": d}
+                  for n, k, d in parts],
+        "ago": {"prev": ago(1), "week": ago(5), "month": ago(21), "year": ago(len(total) - 1) if len(total) >= 250 else None},
+        "chart": [[d, r(v, 0)] for d, v in total.items()],
     }
 
 
