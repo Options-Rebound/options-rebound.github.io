@@ -323,16 +323,38 @@ function spark(points, ath, w = 86, h = 26) {          // tiny 1-year price line
   const athLine = ath && ath <= top ? `<line x1="0" x2="${w}" y1="${y(ath).toFixed(1)}" y2="${y(ath).toFixed(1)}" stroke="var(--accent)" stroke-dasharray="3 3" stroke-width="1" vector-effect="non-scaling-stroke"/>` : "";
   return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">${athLine}<path d="${d}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg>`;
 }
+let vixRange = "1y";
+try { vixRange = localStorage.getItem("vixRange") || "1y"; } catch (e) {}
+vixRange = (location.search.match(/[?&]vix=(1m|6m|ytd|1y|2y)/) || [])[1] || vixRange;   // ?vix=2y links to a range
+function drawVix() {
+  const all = state.market.vix_chart, c = colors(), last = all[all.length - 1][0];
+  const back = (months) => { const d = new Date(last + "T12:00:00Z"); d.setUTCMonth(d.getUTCMonth() - months); return d.toISOString().slice(0, 10); };
+  const from = { "1m": back(1), "6m": back(6), ytd: last.slice(0, 4) + "-01-01", "1y": back(12), "2y": back(24) }[vixRange] || back(12);
+  let pts = all.filter((p) => p[0] >= from);
+  if (pts.length < 2) pts = all.slice(-2);
+  $$("#vixRange button").forEach((b) => b.classList.toggle("on", b.dataset.v === vixRange));
+  const ys = pts.map((p) => p[1]), hi = Math.max(...ys), lo = Math.min(...ys), first = ys[0], now = ys[ys.length - 1];
+  const name = { "1m": "Past month", "6m": "Past 6 months", ytd: "This year", "1y": "Past year", "2y": "Past 2 years" }[vixRange];
+  $("#vixNote").innerHTML = `${name}: from ${first} to <b>${now}</b> (<span class="${cls(-(now / first - 1))}">${pct(now / first - 1)}</span>) · range ${lo}–${hi} · above 20: elevated fear · above 30: panic`;
+  const lab = pts.map((p) => p[0]);
+  lineChart("vixChart", lab, [
+    { label: "VIX", data: ys, borderColor: c.accent, backgroundColor: area(c.accent), fill: true, pointRadius: pts.length < 40 ? 2 : 0, borderWidth: 2, tension: 0.25 },
+    { label: "20 · elevated", data: lab.map(() => 20), borderColor: c.silver, borderDash: [5, 4], pointRadius: 0, borderWidth: 1 },
+    { label: "30 · panic", data: lab.map(() => 30), borderColor: c.bad, borderDash: [5, 4], pointRadius: 0, borderWidth: 1 }]);
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("#vixRange button");
+  if (!b) return;
+  vixRange = b.dataset.v;
+  try { localStorage.setItem("vixRange", vixRange); } catch (err) {}
+  drawVix();
+});
 function renderMarket() {
   const m = state.market, c = colors();
   $("#marketStats").className = $("#pulse").className;
   $("#marketStats").innerHTML = $("#pulse").innerHTML;
   renderMood();
-  const lab = m.vix_chart.map((p) => p[0]);
-  lineChart("vixChart", lab, [
-    { label: "VIX", data: m.vix_chart.map((p) => p[1]), borderColor: c.accent, backgroundColor: area(c.accent), fill: true, pointRadius: 0, borderWidth: 2, tension: 0.25 },
-    { label: "20 · elevated", data: lab.map(() => 20), borderColor: c.silver, borderDash: [5, 4], pointRadius: 0, borderWidth: 1 },
-    { label: "30 · panic", data: lab.map(() => 30), borderColor: c.bad, borderDash: [5, 4], pointRadius: 0, borderWidth: 1 }]);
+  drawVix();
   const dd = [...state.index.stocks].sort((a, b) => a.below_ath - b.below_ath);
   $("#ddChart").parentElement.style.height = Math.max(260, dd.length * 18 + 50) + "px";     // room for every stock
   makeChart("ddChart", {

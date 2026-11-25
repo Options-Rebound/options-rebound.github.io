@@ -181,3 +181,4 @@ input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
 
 /* phones: grid columns may shrink below their content's natural width (wide tables scroll inside .tablewrap instead) */
 .tiles > *, .grid2 > *, .mood__grid > *, .greeks > * { min-width: 0; }
+.seg--sm button { font-size: 13px; padding: 4px 10px; }

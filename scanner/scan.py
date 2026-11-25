@@ -180,7 +180,7 @@ def market(prev_history, spy_max):
         hist[-1]["mood"] = md["score"]
     return {
         "mood": md,
-        "vix": r(float(vix.iloc[-1])), "vix_chart": [[d.strftime("%Y-%m-%d"), r(v)] for d, v in vix.items()],
+        "vix": r(float(vix.iloc[-1])), "vix_chart": [[d.strftime("%Y-%m-%d"), r(v)] for d, v in vix2.iloc[-505:].items()],   # 2 years
         "spy": r(spy), "spy_ath": r(float(spy_max.max())), "spy_below_ath": r(spy / float(spy_max.max()) - 1, 4),
         "pc_volume": pc, "pc_oi": r(po / co, 2) if co else None, "history": hist,
     }

@@ -120,7 +120,9 @@
     <div class="tiles t3" id="marketStats"></div>
     <div class="card mood" id="moodCard" hidden></div>
     <div class="grid2">
-      <div class="card"><div class="card__head"><h2>VIX (fear index), 12 months</h2><span class="muted small">Above 20: elevated fear · above 30: panic</span></div><div class="chart"><canvas id="vixChart"></canvas></div></div>
+      <div class="card"><div class="card__head"><h2>VIX (fear index)</h2>
+        <div class="seg seg--sm" id="vixRange" style="margin-left:auto"><button data-v="1m">1M</button><button data-v="6m">6M</button><button data-v="ytd">YTD</button><button data-v="1y">1Y</button><button data-v="2y">2Y</button></div>
+        <span class="muted small" id="vixNote" style="flex-basis:100%"></span></div><div class="chart"><canvas id="vixChart"></canvas></div></div>
       <div class="card"><div class="card__head"><h2>How far each stock is from its all-time high</h2></div><div class="chart"><canvas id="ddChart"></canvas></div></div>
     </div>
     <div class="card" id="pcHistCard" hidden><div class="card__head"><h2>Market put/call ratio and VIX, day by day</h2><span class="muted small">Builds up as the site keeps running</span></div><div class="chart short"><canvas id="pcHist"></canvas></div></div>
