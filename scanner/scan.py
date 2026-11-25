@@ -6,6 +6,7 @@
 For every ticker in watchlist/ (one file per ticker), it saves:
   data/chains/<T>.json   every expiration's calls and puts (strike, bid, ask, last, IV, open interest, volume)
   data/index.json        one summary line per stock (price, all-time high, beta, volatility, put/call ratios)
+  data/news.json         recent headlines for the watchlist, scored for impact (see news.py)
   data/market.json       VIX, S&P 500 distance from its high, market put/call ratio (+ a short history),
                          and the 0-100 "market mood" gauge (see mood())
 
@@ -25,6 +26,8 @@ from datetime import date, datetime, timezone
 
 import numpy as np
 import yfinance as yf
+
+import news
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TICKER_WORKERS = int(os.environ.get("TICKER_WORKERS", 6))   # stocks fetched at once
@@ -102,6 +105,9 @@ def scan_ticker(ticker, spy_closes):
     rets = hist.pct_change().dropna()
     hv = float(rets.iloc[-252:].std() * math.sqrt(252))
     hv30 = float(rets.iloc[-21:].std() * math.sqrt(252))
+    chg_1d = float(rets.iloc[-1]) if len(rets) else None
+    usual = float(rets.iloc[-61:-1].std()) if len(rets) > 30 else None          # a typical day over the last 3 months
+    move_z = chg_1d / usual if chg_1d is not None and usual else None
     # chart: the last 2 years, about 260 points
     two = hist.iloc[-504:]
     step = max(1, len(two) // 260)
@@ -144,6 +150,7 @@ def scan_ticker(ticker, spy_closes):
         "below_ath": r(price / ath - 1, 4), "high_1y": r(float(one_year.max())), "low_1y": r(float(one_year.min())),
         "beta": r(adj_beta, 2), "beta_raw": r(raw_beta, 2), "hv": r(hv, 4), "hv30": r(hv30, 4), "atm_iv": r(atm_iv, 4),
         "pc_volume": r(pv / cv, 2) if cv else None, "pc_oi": r(po / co, 2) if co else None,
+        "chg_1d": r(chg_1d, 4), "move_z": r(move_z, 1),
         "expirations": len(chains), "contracts": sum(len(c["calls"]) + len(c["puts"]) for c in chains.values()),
     }
     detail = {**summary, "chart": chart, "chains": chains}
@@ -308,6 +315,14 @@ def main():
                    "seconds": round(time.time() - t0)}, f, separators=(",", ":"))
     with open(os.path.join(a.out, "market.json"), "w") as f:
         json.dump({"updated": stamp, **mkt}, f, separators=(",", ":"))
+    try:                                                    # headlines are a bonus: never let them stop an update
+        nws = news.build(summaries, news.previous(a.site_url))
+        with open(os.path.join(a.out, "news.json"), "w") as f:
+            json.dump({"updated": stamp, **nws}, f, separators=(",", ":"))
+        print(f"news: {len(nws['items'])} stories, {sum(i['score'] >= 3 for i in nws['items'])} important, "
+              f"{len(nws['moving'])} stocks moving unusually")
+    except Exception as e:
+        print("  news skipped:", type(e).__name__, e, file=sys.stderr)
     print(f"{len(summaries)} stocks, {len(failed)} failed, {time.time() - t0:.0f}s")
     return 0 if summaries else 1
 

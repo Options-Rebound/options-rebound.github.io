@@ -634,6 +634,75 @@ function renderPortfolio() {
     `${pf.assets.length} stocks considered${pf.dropped.length ? ` (${pf.dropped.join(", ")} skipped: not enough price history)` : ""}. Estimates, not investment advice.`;
 }
 
+// ---------------------------------------------------------------- news
+const newsState = { t: "", level: "important", tone: "any" };
+const IMPORTANT = 3, BIG = 5;
+function ago(iso) {
+  const m = Math.max(0, Math.round((Date.now() - new Date(iso)) / 60000));
+  return m < 60 ? `${m || 1} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
+}
+function dayLabel(iso) {
+  const d = new Date(iso), t = new Date(), y = new Date(Date.now() - 864e5);
+  return d.toDateString() === t.toDateString() ? "Today" : d.toDateString() === y.toDateString() ? "Yesterday"
+    : d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+}
+const safeUrl = (u) => (/^https:\/\//.test(u) ? esc(u) : "#");
+function newsItem(i) {
+  const tone = i.sentiment > 0 ? "pos" : i.sentiment < 0 ? "neg" : "";
+  const chips = i.tickers.map((t) => `<button class="tk${i.moving.includes(t) ? " hot" : ""}" data-newst="${esc(t)}">${t === "Market" ? "Market" : esc(t)}</button>`).join("");
+  const badge = i.score >= BIG ? `<span class="imp big">Big</span>` : i.score >= IMPORTANT ? `<span class="imp">Market-moving</span>` : "";
+  return `<article class="news ${tone}">
+    <div class="news__meta">${chips}${badge}${i.tags.map((g) => `<span class="tag">${esc(g)}</span>`).join("")}</div>
+    <a class="news__title" href="${safeUrl(i.url)}" target="_blank" rel="noopener noreferrer">${esc(i.title)}</a>
+    ${i.summary ? `<p class="news__sum">${esc(i.summary)}</p>` : ""}
+    <div class="news__src muted small">${esc(i.publisher)} · ${ago(i.time)}${i.video ? " · video" : ""}</div></article>`;
+}
+async function renderNews(force) {
+  if (!state.news || force) {
+    try { state.news = await getJSON("data/news.json"); }
+    catch (e) { $("#newsList").innerHTML = `<p class="muted">Headlines aren't available yet. They appear after the next update.</p>`; $("#moving").hidden = true; return; }
+  }
+  const n = state.news, items = n.items;
+  const ticks = [...new Set(items.flatMap((i) => i.tickers))].sort((a, b) => (a === "Market" ? -1 : b === "Market" ? 1 : a.localeCompare(b)));
+  $("#newsTicker").innerHTML = `<option value="">All stocks</option>` +
+    ticks.map((t) => `<option value="${esc(t)}" ${t === newsState.t ? "selected" : ""}>${t === "Market" ? "Market-wide" : esc(t)}</option>`).join("");
+  $$("#newsLevel button").forEach((b) => b.classList.toggle("on", b.dataset.v === newsState.level));
+  $$("#newsTone button").forEach((b) => b.classList.toggle("on", b.dataset.v === newsState.tone));
+
+  // stocks moving more than twice their usual daily move, each with its most important recent story
+  const mv = $("#moving"); mv.hidden = false;
+  const top = (t) => items.filter((i) => i.tickers.includes(t) && i.score >= IMPORTANT && Date.now() - new Date(i.time) < 864e5 * 1.5).sort((a, b) => b.score - a.score)[0];
+  mv.innerHTML = `<div class="card__head"><h2>Moving unusually today</h2><span class="muted small">Stocks moving more than 2× their typical daily move (last 3 months), with their top story</span></div>` +
+    (n.moving.length ? `<div class="movers">${n.moving.map((m) => { const s = top(m.ticker); return `<div class="mover">
+        <div><button class="tk hot" data-newst="${esc(m.ticker)}">${esc(m.ticker)}</button> <b class="${cls(m.chg)}">${pct(m.chg, 1)}</b>
+          <span class="muted small">${Math.abs(m.z).toFixed(1)}× a usual day</span></div>
+        ${s ? `<a href="${safeUrl(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a>` : `<span class="muted small">No market-moving headline yet · <a href="#/news" data-newst="${esc(m.ticker)}">all ${esc(m.ticker)} stories</a></span>`}</div>`; }).join("")}</div>`
+      : `<p class="muted">None of your stocks is moving unusually right now.</p>`);
+
+  let list = items.filter((i) => (!newsState.t || i.tickers.includes(newsState.t)) && (newsState.level === "all" || i.score >= IMPORTANT) &&
+    (newsState.tone === "any" || i.sentiment === +newsState.tone));
+  if (!list.length) {
+    $("#newsList").innerHTML = `<p class="muted">No ${newsState.level === "important" ? "market-moving " : ""}stories${newsState.t ? " for " + esc(newsState.t) : ""} in the last 3 days${newsState.level === "important" ? `. <a href="#/news" data-newslevel="all">Show all headlines</a>` : ""}.</p>`;
+    return;
+  }
+  let day = "", html = "";
+  for (const i of list.slice(0, 150)) {
+    const d = dayLabel(i.time);
+    if (d !== day) { html += `<h3 class="news__day">${d}</h3>`; day = d; }
+    html += newsItem(i);
+  }
+  $("#newsList").innerHTML = html;
+}
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-newst]");
+  if (t) { newsState.t = newsState.t === t.dataset.newst ? "" : t.dataset.newst; if (location.hash !== "#/news") location.hash = "#/news"; else renderNews(); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+  const lv = e.target.closest("#newsLevel button, [data-newslevel]");
+  if (lv) { e.preventDefault(); newsState.level = lv.dataset.v || lv.dataset.newslevel; renderNews(); return; }
+  const tn = e.target.closest("#newsTone button");
+  if (tn) { newsState.tone = tn.dataset.v; renderNews(); }
+});
+document.addEventListener("change", (e) => { if (e.target.id === "newsTicker") { newsState.t = e.target.value; renderNews(); } });
+
 // ---------------------------------------------------------------- routing + wiring
 function show(tab) {
   $$(".view").forEach((v) => (v.hidden = v.id !== tab));
@@ -641,10 +710,11 @@ function show(tab) {
 }
 function route() {
   const [, tab = "board", arg] = location.hash.split("/");
-  show(["board", "explore", "portfolio", "market"].includes(tab) ? tab : "board");
+  show(["board", "explore", "portfolio", "market", "news"].includes(tab) ? tab : "board");
   if (tab === "portfolio") renderPortfolio();
   if (tab === "explore") openTicker(arg || ex.t || "");
   if (tab === "market") renderMarket();
+  if (tab === "news") renderNews();
 }
 function seg(id, key, cb) {
   $$(`#${id} button`).forEach((b) => (b.onclick = () => {
@@ -674,6 +744,7 @@ async function checkForNewData() {
     if (tab === "explore" && ex.data && $("#exK")) renderExplorer();
     if (tab === "market") renderMarket();
     if (tab === "portfolio") renderPortfolio();
+    if (tab === "news") renderNews(true); else state.news = null;     // fresh headlines next time the tab opens
   } catch (e) { /* offline or mid-deploy: try again next time */ }
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden && state.index) { showFreshness(); checkForNewData(); } });

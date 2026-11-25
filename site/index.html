@@ -35,6 +35,7 @@
       <a href="#/explore" data-tab="explore">Explorer</a>
       <a href="#/portfolio" data-tab="portfolio">Portfolio</a>
       <a href="#/market" data-tab="market">Market</a>
+      <a href="#/news" data-tab="news">News</a>
     </nav>
     <span class="updated"><span class="dot" id="dot"></span><span id="updated"></span></span>
   </div>
@@ -128,6 +129,20 @@
     <div class="card" id="pcHistCard" hidden><div class="card__head"><h2>Market put/call ratio and VIX, day by day</h2><span class="muted small">Builds up as the site keeps running</span></div><div class="chart short"><canvas id="pcHist"></canvas></div></div>
     <div class="card"><div class="card__head"><h2>Put/call ratio by stock</h2><span class="muted small">Above 1: more puts than calls traded (fear or hedging). Below 0.7: calls dominate (optimism).</span></div>
       <div class="tablewrap"><table id="pcTable"></table></div></div>
+  </section>
+  <!-- ======================= NEWS ======================= -->
+  <section id="news" class="view" hidden>
+    <div class="card" id="moving"></div>
+    <div class="card controls">
+      <div class="ctl"><label>Stock</label><select id="newsTicker" aria-label="Stock"><option value="">All stocks</option></select></div>
+      <div class="ctl"><label>Show</label><div class="seg" id="newsLevel"><button data-v="important" class="on">Market-moving</button><button data-v="all">All headlines</button></div></div>
+      <div class="ctl"><label>Tone</label><div class="seg" id="newsTone"><button data-v="any" class="on">Any</button><button data-v="1">Positive</button><button data-v="-1">Negative</button></div></div>
+    </div>
+    <div class="card"><div id="newsList"></div></div>
+    <p class="note">Headlines from Yahoo Finance for the stocks you track plus market-wide stories, refreshed with every update and kept for 3 days.
+      "Market-moving" keeps stories about earnings, analyst rating changes, deals, legal or regulatory trouble, share offerings and buybacks,
+      leadership changes and approvals, especially when the stock is moving more than usual, and leaves out listicles and "stocks to buy" pieces.
+      Tone is read from the headline's wording, so treat it as a hint. Not investment advice.</p>
   </section>
 </main>
 <script src="app.js"></script>
